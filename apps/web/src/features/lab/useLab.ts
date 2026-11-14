@@ -32,15 +32,29 @@ export function useStartRun() {
   });
 }
 
-/** Primary storage per category from the live policy, to mark the current choice in the matrix. */
+export const POLICY_KEY = ["policy"];
+
+/** The live policy. The matrix highlight and Apply both read it, so neither can drift from the server. */
+export function usePolicy() {
+  return useQuery({
+    queryKey: POLICY_KEY,
+    refetchInterval: 10000,
+    queryFn: async ({ signal }) => {
+      const { data } = await api.GET("/api/v1/policy", { signal });
+      if (!data) throw new Error("Policy unavailable");
+      return data;
+    },
+  });
+}
+
+/** Primary storage per category, to mark the current choice in the matrix. */
 export function useCurrentPolicy() {
   return useQuery({
-    queryKey: ["policy"],
-    queryFn: async (): Promise<Partial<Record<Category, Storage>>> => {
-      const { data } = await api.GET("/api/v1/policy");
-      const c = data?.categories;
-      if (!c) return {};
-      return { meter: c.meter.primary, outage: c.outage.primary, document: c.document.primary, video: c.video.primary };
+    queryKey: POLICY_KEY,
+    queryFn: async () => (await api.GET("/api/v1/policy")).data,
+    select: (p): Partial<Record<Category, Storage>> => {
+      const c = p?.categories;
+      return c ? { meter: c.meter.primary, outage: c.outage.primary, document: c.document.primary, video: c.video.primary } : {};
     },
   });
 }

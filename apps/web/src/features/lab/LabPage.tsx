@@ -25,7 +25,7 @@ export function LabPage() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {run.recommendation.map((r) => <RecoCard key={r.category} rec={r} current={current[r.category]} />)}
           </div>
-          <ApplyPolicy />
+          <ApplyPolicy recs={run.recommendation} />
         </section>
       ) : (
         !isPending && <p className="text-sm text-muted">{run?.status === "running" ? "Recommendations appear when every cell has finished." : "No benchmark yet. Run one to see a recommendation for each category."}</p>

@@ -25,3 +25,4 @@ export type Storage = components["schemas"]["Storage"];
 export type LabRun = components["schemas"]["StorageLabRun"];
 export type LabCell = components["schemas"]["StorageLabCell"];
 export type LabRecommendation = NonNullable<LabRun["recommendation"]>[number];
+export type Policy = components["schemas"]["Policy"];
