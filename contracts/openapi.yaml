@@ -689,8 +689,8 @@ components:
         station: { type: string, example: Statia 110kV Timisoara Sud }
         recorder: { type: string, example: DFR-07 }
         revision: { type: string, example: "2013" }
-        faultTime: { type: string, format: date-time, description: Trigger time, as UTC }
-        startTime: { type: string, format: date-time, description: First sample, as UTC }
+        faultTime: { type: string, format: date-time, description: "Trigger time, as UTC" }
+        startTime: { type: string, format: date-time, description: "First sample, as UTC" }
         recordingMs: { type: integer, example: 1200 }
         lineHz: { type: number, example: 50 }
         clock:
