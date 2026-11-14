@@ -728,3 +728,51 @@ also reads the document **where vsftpd keeps it** (`/home/ftpusers/filegrid/<fil
 
 The key is not on the FTP server: a per-file key is wrapped by a key derived from `FILEGRID_MASTER_KEY`, and only the wrapped key is
 stored (in Postgres). The master key is in the API's environment only.
+
+## COMTRADE metadata of outage files (backlog 18: station, fault time)
+
+An outage record usually comes as a COMTRADE pair: a `.cfg` (text: the station, the recorder, when the fault was triggered, how long the
+recording runs) and a `.dat` (the samples). When an outage upload is a `.cfg` (or a `.cff`, which holds the configuration first), the API
+reads it and stores the result in `files.metadata` (jsonb, already in the schema; no migration). The hotspot view can then count outages per
+station and per day without anyone typing anything.
+
+| Key in `files.metadata` | Meaning | Example |
+| --- | --- | --- |
+| `format` | always `comtrade` | `comtrade` |
+| `station` | station name, first line of the `.cfg` (control characters removed, at most 128 characters) | `SUBSTATION PLOIESTI NORD 110kV` |
+| `recorder` | recording device id | `DFR-7` |
+| `revision` | COMTRADE revision (`1991` when the file has none) | `1999` |
+| `analogChannels`, `digitalChannels` | channel counts | `2`, `3` |
+| `lineHz` | line frequency | `50.0` |
+| `sampleRateHz`, `samples` | first sampling rate and total samples | `4000.0`, `200` |
+| `recordingMs` | length of the recording (sum over the rates; absent for a variable rate) | `50` |
+| `startTime` | first sample, ISO-8601 | `2026-11-14T10:15:30Z` |
+| `faultTime` | the trigger point, when the fault was detected, ISO-8601 | `2026-11-14T10:15:30.250Z` |
+| `dataFormat` | `ASCII`, `BINARY`, `BINARY32` or `FLOAT32` | `ASCII` |
+
+Every key is optional except `format`: a field a file does not have is left out. Query it as `metadata ->> 'station'` and
+`(metadata ->> 'faultTime')::timestamptz`. Proposed for `contracts/db.md` (not changed here): list these keys under `files.metadata`.
+
+How it works, and what it does not do:
+
+- **Only the start is read.** The upload copies the first 256 KiB into memory while the bytes stream to storage (a `.cfg` is a few
+  kilobytes); the `.dat` samples are never read, so a large file still streams with flat memory. The stored file is the original, unchanged,
+  and its hash is of those bytes.
+- **It never fails an upload.** A `.cfg` that is not a configuration, a bad date or a cut-off file gives fewer keys or none, and the file is
+  stored like any other. Only an outage upload whose name ends in `.cfg` or `.cff` is looked at; a `.dat`, a document or a video is not.
+- **The recorder's clock is read as UTC.** A COMTRADE time has no zone unless a 2013 `time_code` line gives one, and that line is not
+  interpreted. If a recorder writes local time, `faultTime` is off by its offset.
+- **No county.** A station name is not a county, and there is no list that maps one to the other, so `files.county` stays empty. Hotspots can
+  group by `station` and by `region` today. A county needs a source: a station-to-county table (Zone C), or an optional `county` field in the
+  upload contract.
+- Files uploaded before this change have no metadata (nothing to backfill: the lab's outage files are random bytes).
+- Only `POST /files` is covered. The tus path is for video.
+
+### Proof
+
+`make a-comtrade-check` (live, deletes what it makes): a `.cfg` as outage gives the station, recorder, fault time (`10:15:30.250Z`) and
+recording length (50 ms), a view reads them, the file comes back byte-identical with the right hash; a `.dat`, a `.cfg` with no
+configuration in it and a document called `.cfg` get no metadata; a 5 MiB `.cff` is read from its start, with hash and size of the whole file.
+
+Unit tests: 14 for the parser (1991 and 1999 layouts, several sample rates, variable rate, `.cff`, cut-off head, UTF-8 and Latin-1 names, bad
+dates, nanoseconds, random bytes never throw), 3 at service level, and 2 on a real PostgreSQL (`FileMetadataDbTest`, run in CI).
