@@ -24,7 +24,7 @@ Simulator and chaos-control: Node 22 + TypeScript strict + Fastify.
 
 ## Backlog (in priority order)
 ### P0 — gating (done by 17:00)
-1. `infra/compose.yml`: postgres, seaweedfs (+ bucket init job), ftps, caddy; networks `edge`, `app`, `data` (`internal: true`). **No `ports:` on any storage.** Healthchecks on everything; `depends_on: condition: service_healthy`.
+1. `infra/compose.yml`: postgres, seaweedfs (buckets created by its start script), ftps, caddy; networks `edge`, `app`, `data` (`internal: true`). **No `ports:` on any storage.** Healthchecks on everything; `depends_on: condition: service_healthy`.
 2. `make up`: checks Docker, generates `.env` from `.env.example` with random secrets (`openssl rand`), runs `docker compose up -d --build --wait`, prints the URLs. `make down`, `make reset` (wipe volumes), `make logs`.
 3. Caddy: `https://localhost` with internal CA (`tls internal`), routes `/api/*`, `/chaos/*`, `/insights/*`, `/grafana/*`, `/` → web. HTTP → HTTPS redirect.
 4. **Meter simulator v1**: N virtual meters across Muntenia/Banat/Dobrogea counties, each sends a reading file (JSON, 1–50 KB: meter id, region, county, lat/lon, 15-min intervals kWh, voltage, flags) to `POST /api/v1/meter-readings` with `Idempotency-Key`. Config by env and live via `POST /chaos/meters {readingsPerSec}`. Retries with exponential backoff + jitter, **same key on retry**. Exposes `meter_sim_*` metrics. Profiles: `normal`, `peak` (10x).
@@ -65,7 +65,7 @@ Simulator and chaos-control: Node 22 + TypeScript strict + Fastify.
 - **Commands:** `make up`, `make logs s=<service>`, `make demo`, `make fresh-test`.
 
 ## Gotchas
-- `internal: true` networks have no internet: images must be built before; bucket init runs on `data` network.
+- `internal: true` networks have no internet: images must be built before. Avoid one-shot init containers: `docker compose up --wait` treats an exited container as a failed start, so do setup inside the service start script.
 - Docker Desktop on macOS/Windows: Toxiproxy and Caddy work, but use `host.docker.internal` nowhere — everything by service name.
 - Caddy local CA: browsers warn once; document `make trust` (runs `caddy trust` inside the container and exports the root cert).
 - Keep the Docker socket out of every container except chaos-control, and say so in the README (security judges will ask).
