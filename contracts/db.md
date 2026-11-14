@@ -26,14 +26,14 @@ without a contract PR.
 | `original_name` | text | never logged for documents |
 | `description` | text | |
 | `region` | text | `muntenia\|banat\|dobrogea`, nullable |
-| `county` | text | nullable |
+| `county` | text | nullable; a `County` from openapi.yaml, set at upload |
 | `uploaded_by` | text | username |
 | `encrypted` | boolean | |
 | `wrapped_key` | bytea | per-file data key, wrapped by the master key |
 | `iv` | bytea | |
 | `status` | text | `stored\|spooled\|corrupt` |
 | `trace_id` | text | |
-| `metadata` | jsonb | category-specific (e.g. COMTRADE station, fault time) |
+| `metadata` | jsonb | category-specific; outage COMTRADE keys = `ComtradeRecording` in openapi.yaml (`station`, `faultTime`, `clock`, ...) |
 | `created_at` | timestamptz | |
 | `last_verified_at` | timestamptz | |
 
