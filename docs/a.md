@@ -670,3 +670,45 @@ Honest reading:
   in the Chaos page; that is not part of this proof.
 - The download is done on the normal port. A download that breaks cannot be resumed (the API has no range requests), so a broken
   download starts again. For the demo that is the video player's job, not the upload's.
+
+## Meter data for analysis (Section 5: meter anomalies)
+
+Asked by Zone C. A reading is now stored for analysis as well as for billing.
+
+- **Same transaction.** `MeterRepository.insertIfNew` inserts the `meter_readings` row and, only if that row is new, the reading's
+  intervals into `meter_intervals (meter_id, ts, kwh, voltage, flags)` with `ON CONFLICT (meter_id, ts) DO NOTHING`. Both run inside the
+  transaction the service already opens, so they commit together or not at all. The meter spool replay goes through the same method.
+- **Retries never duplicate.** A retry (same key, or another key for the same meter, period and seq) finds the reading and writes nothing,
+  in both tables. An interval already stored for that meter and time is kept as it is (the first value wins).
+- **A bad value never stops a reading.** The reading is the billing record, so the database never refuses it for one odd interval. An
+  interval with no timestamp or no usable `kwh`, or a `kwh` that does not fit `numeric(10,4)`, is skipped (a warning with meter id and
+  seq is logged). A `voltage` that does not fit `numeric(6,2)` is stored as null. The reading stays whole in `raw`.
+- **Columns of `meter_readings`.** `region`, `county`, `lat` and `lon` are stored as the reading sent them.
+- **`V104__backfill_meter_intervals.sql`** fills `meter_intervals` from the `raw` of the readings stored before, with the same rules.
+  Every cast is behind a JSON type check, and it is safe to run again (nothing is duplicated, no existing row changes). On the lab
+  database it ran over 10 187 readings.
+- **`files.region` for outage uploads** is stored from the upload's `region` (form field of `POST /files`, `region` in the tus metadata).
+  It is optional in the contract, so an upload that leaves it out gets null.
+
+### Proof
+
+`make a-meter-check` (live, removes the rows it makes): the same reading sent three times gives `201`, `200`, `200` and one row in
+`meter_readings` plus one row per interval; a second key for the same reading adds nothing; an overlapping reading keeps the stored
+value; a huge `kwh` is still accepted and kept whole in `raw`; no stored interval is missing from `meter_intervals`; an outage uploaded
+with `region` (POST and tus) has it in `files`.
+
+`MeterIntervalsDbTest` (9 tests, real PostgreSQL 17 through Testcontainers, the production migrations): duplicate key leaves one row in each
+table, another key for the same reading adds nothing, the two inserts roll back together, out-of-range values, a reading with no
+intervals, and the V104 backfill (readings with odd `raw`, an existing interval left unchanged, run twice). The test is skipped when
+Docker is not available, and runs in CI.
+
+### For Zone C: what the data holds and what it lacks
+
+| Need | State |
+| --- | --- |
+| `meter_intervals` rows for the anomaly view | filled for new readings and, with V104, for the old ones |
+| `meter_readings.lat` / `lon` | **null in every reading the simulator sends** (`lat: null, lon: null`). Zone B's simulator would have to send them. Zone A stores what arrives. |
+| `meter_readings.county` | filled by the simulator |
+| `files.county` (outage hotspots by county) | **no source.** The upload has no county field (not in `openapi.yaml`) and `files.county` is always null. Options: (a) add an optional `county` form field and tus metadata key to the contract, and Zone C's upload form sends it (a few lines on my side once the contract says so); (b) fill it later from the COMTRADE `.cfg` station (backlog item 18). Until then, group hotspots by `region` or by station once COMTRADE exists. |
+| `files.region` | set for uploads that send it; the web form and the chaos storm do. The 933 older outage rows with a null region come from lab scripts that did not send one. |
+| Timestamps in the simulated data | the simulator sends many readings (growing `seq`) with the **same** interval `ts`, so 10 187 readings from 19 meters hold only 19 distinct `(meter_id, ts)`: `meter_intervals` is keyed by meter and time, so it has one row each. For a useful anomaly view the simulator must advance `ts` by 15 minutes per interval across readings (Zone B). |
