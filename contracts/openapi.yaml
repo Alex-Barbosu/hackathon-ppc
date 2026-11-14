@@ -924,6 +924,13 @@ components:
         atRisk: { type: string, example: Outage records may be delayed for dispatch }
         probableCause: { type: string, example: SeaweedFS stopped; circuit open since 12:41 }
         nextStep: { type: string, example: Restart S3; spool will drain automatically }
+        severity: { type: string, enum: [warning, critical] }
+        summary: { type: string, description: The alert's own summary annotation, example: S3 storage is down }
+        narration:
+          type: string
+          description: |
+            Two plain-language sentences from the narrator, written from metrics only (never file names,
+            contents or ids). Absent until written, and absent when the AI is unavailable; show `summary` then.
 
     Anomaly:
       type: object
