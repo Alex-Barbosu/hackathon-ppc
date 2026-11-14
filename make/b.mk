@@ -30,3 +30,10 @@ b-profile: ## Zone B: switch the meter day profile live: make b-profile P=peak (
 	@docker compose exec -T meter-simulator wget -qO- --post-data='{"profile":"$(or $(P),normal)"}' --header='content-type: application/json' http://127.0.0.1:9100/rate; echo
 b-token: ## Zone B: print an admin JWT for /chaos and /api (8 h): TOKEN=$$(make -s b-token)
 	@docker compose exec -T chaos-control node dist/token.js
+
+.PHONY: b-alert-check
+b-alert-check: ## Zone B: fire and resolve StorageDown, MeterReadingLossRisk, IntegrityFailure; check insights got both (~12 min)
+	@./scripts/alert-check.sh
+.PHONY: b-trace
+b-trace: ## Zone B: upload one file, check its trace gateway → API → storage in Tempo and its log in Loki, print the Grafana link
+	@./scripts/trace-check.sh

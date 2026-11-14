@@ -457,6 +457,155 @@ syntax only until filegrid-api emits them.
 - `docker compose stop mock-api` for 20 s at 20/s: 408 readings pending, 0 lost; after
   `start`, all were acked (sent = acked = 3445, 119 retries).
 
+## Demo hardening for the judges (14 Nov night, branch `zone-b/demo-hardening`)
+
+### `make demo` waits for S3 to come back
+
+Step 3 now ends with "start S3", then waits until `GET /api/v1/storages/health` reports s3
+`up: true` **and** `circuitOpen: false`, with a countdown (one rewritten line on a terminal,
+a line every 10 s in a log; limit `DEMO_S3_WAIT`, default 120 s). Then it uploads one outage
+record and checks it lands on `s3` again. Container up is not enough: FileGrid reported s3
+up 22 s after the start, with its circuit still open for a few seconds more, and an upload in
+that window still goes to the fallback. Step 6 uses the same wait for all three storages.
+
+Unattended run (`DEMO_AUTO=2`), every step passed: meter p95 3.0 ms at baseline and 2.4 ms
+at the end of the outage storm (outage saves 5.0/s); with S3 stopped outage → `db`,
+document → `ftp` encrypted, meters 10/s, `StorageDown` firing; **FileGrid saw S3 again
+30 s after the start**, outage back on `s3`; slow lane 4 ms → 847 ms; corrupted document
+→ 422, `IntegrityFailure` firing; after reset all storages usable at once.
+
+### One upload traced gateway → API → storage (`make b-trace`)
+
+Found and fixed on the way:
+- **Traces did not start at the gateway.** Caddy had no tracing, so the root span was
+  filegrid-api's. The `/api` routes now have Caddy's `tracing` directive, exported over
+  OTLP to the collector (`OTEL_*` env on caddy), and Caddy passes `traceparent` on.
+- **The running API image was stale** (built before zone A's #31 and #33 merged), so
+  storage spans and OTLP logs were missing. After `make up` they are there. An earlier
+  "Loki has no filegrid-api logs" finding was this, not a zone A bug.
+- **Trace → logs found nothing.** `filterByTraceID` adds a text filter (`|= "<id>"`), but
+  OTLP logs carry the trace id as structured metadata, not in the text. The Tempo datasource
+  now uses `{service_name=~".+"} | trace_id="<id>"`. Loki also gets a derived field, so a
+  log line links back to its trace.
+- **No exemplar dots.** No panel asked for exemplars, so there was nothing to click on a
+  latency chart. The p50/p95/p99 charts and the Storm save-time chart now set
+  `exemplar: true`.
+- **Explore was closed to anonymous viewers** (302 to the home page), so a link in the
+  README would not open for a judge. `GF_USERS_VIEWERS_CAN_EDIT=true` opens Explore;
+  viewers still cannot save dashboards or change datasources.
+
+`make b-trace` uploads one outage record and checks, through Grafana's datasource proxy:
+
+```text
+  ✓ outage record 7126fd1c-5acd-4a97-9237-8cc5f4d571c0 stored on s3, receipt traceId 32a7d6b97f473b5e3fc3394d6be4ff85
+  ✓ span: caddy /api
+  ✓ span: http post /api/v1/files
+  ✓ span: policy.route
+  ✓ span: storage.write
+  ✓ spans carry filegrid.file_id=7126fd1c-5acd-4a97-9237-8cc5f4d571c0
+  ✓ log line in Loki for this trace: stored file_id=7126fd1c-5acd-4a97-9237-8cc5f4d571c0
+  ✓ one upload traced from the gateway to the storage write, with its logs
+```
+
+Span tree of one 500 KB outage upload: `caddy /api` 74.7 ms → `http post /api/v1/files`
+73.5 ms → `policy.route` 0.2 ms and `storage.write` (s3) 45.6 ms. The printed Explore link
+answered 200 without a login. Grafana's query API returned 179 exemplars with a `trace_id`
+for the p95 query over 15 minutes.
+Not verified: clicking an exemplar dot in a real browser. The agent's browser cannot open
+localhost, so the click itself (a frontend link built from `exemplarTraceIdDestinations`) is
+checked by the data only. Rehearse it once by hand.
+
+### Every alert route fires and resolves (`make b-alert-check`)
+
+Alertmanager has one route (everything → `http://insights:8070/insights/alerts`,
+`send_resolved: true`). zone C's endpoint is already live: it answered 202, so no 404. The
+script breaks something, waits for Prometheus to fire, waits for insights' log line
+`"alert received"` with that alert name, undoes the break, waits for the clear, then waits
+for a further webhook call and for Alertmanager to drop the alert. It starts only when the
+three alerts are clear, because an alert group already notified sends nothing new for 30 min.
+
+| Alert | Break | Firing after | Delivered after | Undo → clear | Resolved delivered |
+| --- | --- | --- | --- | --- | --- |
+| `StorageDown` | stop s3 | 42 s | +10 s | start s3 → 6 s | ✅ |
+| `MeterReadingLossRisk` | stop db at 10 readings/s | 70 s | +12 s | start db → 21 s | ✅ |
+| `IntegrityFailure` | corrupt a document + download (422) | 9 s | +10 s | 5 min window → 290 s | ✅ |
+
+`alertmanager_notifications_failed_total{integration="webhook"}`: 0. The first run's
+IntegrityFailure check failed on a timing race in the script, not in the alert path:
+Alertmanager sent the resolved notice before the script's own poll saw the clear. It now
+counts calls after the firing one.
+
+### `make fresh-test` (branch `zone-b/demo-hardening`, local clone)
+
+Nothing to fix. Full check output:
+
+```text
+━━ 1  Clone /home/robert/Diverse/hackathon-ppc (zone-b/demo-hardening)
+  → pausing stack 'filegrid' that holds port 443 (containers stopped, data kept)
+  ✓ cloned ba05eec feat(b): traces start at the gateway; exemplar dots, trace-to-
+  ✓ no .env in the clone (secrets are generated, never committed)
+━━ 2  make up (the one command from the README)
+  ✓ make up finished in 42 s, every service with a healthcheck healthy
+  ✓ under the 3-minute target
+  ✓ .env generated with random secrets
+━━ 3  Every route through the gateway
+  ✓ http://localhost redirects to https (301)
+  ✓ GET /api/v1/health (200)
+  ✓ GET /insights/health (200)
+  ✓ GET /mock/api/v1/health (200)
+  ✓ GET / (200)
+  ✓ GET /grafana (308)
+  ✓ GET /grafana/ (200)
+  ✓ GET /chaos/state (401)
+  ✓ GET /chaos/state (200)
+  ✓ Grafana home dashboard (FileGrid Overview)
+━━ 4  Login (demo users, password from .env)
+  ✓ login admin
+  ✓ login dispatch
+  ✓ login connections
+  ✓ login field
+  ✓ wrong password refused (401)
+  ✓ files need a token (401)
+━━ 5  Store and retrieve every category, byte-identical (gating 1, 2, 4)
+  ✓ outage stored in s3 (policy)
+  ✓ outage downloaded byte-identical, SHA-256 = receipt
+  ✓ document stored in ftp (policy)
+  ✓ document downloaded byte-identical, SHA-256 = receipt
+  ✓ video (tus) uploaded and downloaded byte-identical
+  → meter readings: the simulator has been sending since make up
+  ✓ meter readings stored: 28 (gating 7)
+━━ 6  Locked down (NFR security)
+  ✓ port 5432 closed
+  ✓ port 8333 closed
+  ✓ port 8888 closed
+  ✓ port 9333 closed
+  ✓ port 21 closed
+  ✓ port 8080 closed
+  ✓ port 8088 closed
+  ✓ port 8090 closed
+  ✓ port 9090 closed
+  ✓ port 9100 closed
+  ✓ port 3000 closed
+  ✓ only caddy and toxiproxy publish ports (caddy toxiproxy )
+  ✓ only chaos-control mounts the Docker socket (services/chaos-control/compose.yml )
+━━ 7  Observability
+  ✓ every Prometheus target is up
+  ✓ 8 alert rules loaded
+  ✓ no alert firing on a healthy stack
+━━ Result
+  43 passed, 0 failed
+━━ Cleanup
+  ✓ stack filegrid-fresh-213542 removed (containers, volumes, images)
+  → restarting the stack that was running before: filegrid
+  ✓ filegrid running again
+```
+
+### Since the last session: zone A shipped metrics listed as missing
+
+`filegrid_queue_depth` (#28), `filegrid_storage_up`, `filegrid_circuit_open` (#22, #33) and
+Postgres + S3 through Toxiproxy (#33) are on main, so those requests below are done. FTP
+through Toxiproxy still needs ten passive-port proxies on zone B's side (#33 explains it).
+
 ## Contract change proposals (for the humans to raise)
 
 - **JWT claims.** The contract names the roles but not the token. chaos-control and
