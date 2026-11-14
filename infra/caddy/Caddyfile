@@ -3,6 +3,54 @@
 	admin 127.0.0.1:2019
 }
 
+# The /api upstream, shared by the public site and the internal listener below.
+(filegrid_api) {
+	reverse_proxy {
+		# One upstream per replica, from Docker DNS (A records of the service name), so
+		# round robin spreads requests over every `make scale N=3` replica. A plain
+		# `filegrid-api:8080` upstream is a single target: each connection lands on
+		# whichever IP the resolver returns first and stays there via keep-alive.
+		dynamic a filegrid-api 8080 {
+			refresh 5s
+			versions ipv4
+		}
+		lb_policy round_robin
+		# Active health checks do not run for dynamic upstreams. When a replica is booting
+		# or dead, the connection fails and Caddy tries the next replica (connection errors
+		# only, so a request body is never sent twice). No passive health (fail_duration):
+		# Caddy counts any proxy error as an upstream failure, including an upload whose
+		# body the API closed early, and under a storm that marked every healthy replica
+		# down at once ("no upstreams available", 503 for every category).
+		lb_try_duration 10s
+		lb_try_interval 100ms
+		flush_interval -1
+		transport http {
+			# A killed replica's IP answers nothing until Docker DNS drops it; give up fast
+			# and move on instead of hanging for the default 3 s.
+			dial_timeout 1s
+			# Below Tomcat's 20 s idle timeout (Spring Boot default). Otherwise Caddy, which
+			# keeps idle connections for 2 min, sometimes sends a request on a connection Tomcat
+			# is closing at that moment: 502 "invalid Read on closed Body", about once a minute.
+			keepalive 10s
+			read_timeout 30m
+			write_timeout 30m
+		}
+	}
+}
+
+# Internal-only listener for in-stack clients (meter simulator, chaos storms): plain HTTP on
+# the `app` network, never published (only 80/443 are). It exists so their requests are
+# load-balanced over every API replica like a browser's; calling filegrid-api:8080 directly
+# pins a keep-alive connection to whichever replica DNS returned first.
+http://:8088 {
+	handle /api/* {
+		import filegrid_api
+	}
+	handle {
+		respond "Not found" 404
+	}
+}
+
 http://{$FILEGRID_HOST} {
 	redir https://{host}{uri} permanent
 }
@@ -19,28 +67,7 @@ http://{$FILEGRID_HOST} {
 	}
 
 	handle /api/* {
-		reverse_proxy {
-			# One upstream per replica, from Docker DNS (A records of the service name), so
-			# round robin spreads requests over every `make scale N=3` replica. A plain
-			# `filegrid-api:8080` upstream is a single target: each connection lands on
-			# whichever IP the resolver returns first and stays there via keep-alive.
-			dynamic a filegrid-api 8080 {
-				refresh 5s
-				versions ipv4
-			}
-			lb_policy round_robin
-			# Active health checks do not run for dynamic upstreams. A replica that is still
-			# booting refuses the connection; Caddy then tries the next one (dial errors only,
-			# so a request body is never sent twice) and keeps it out for fail_duration.
-			lb_try_duration 10s
-			lb_try_interval 250ms
-			fail_duration 15s
-			flush_interval -1
-			transport http {
-				read_timeout 30m
-				write_timeout 30m
-			}
-		}
+		import filegrid_api
 	}
 
 	handle /chaos/* {

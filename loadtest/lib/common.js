@@ -3,7 +3,14 @@
 // exactly like a browser: https://localhost through Caddy, TLS and auth included.
 import http from "k6/http";
 import crypto from "k6/crypto";
-import { check, fail } from "k6";
+import { check, fail, sleep } from "k6";
+import { Counter } from "k6/metrics";
+
+// Uploads resent after the gateway answered 502/503 or the connection broke: what a real
+// client (the web app's uploader) does when the replica serving it goes away mid-request.
+// Counted separately, so a retried upload is visible and not hidden as a success.
+const uploadRetries = new Counter("upload_retries");
+const RETRYABLE = new Set([0, 502, 503]);
 
 export const BASE = __ENV.BASE_URL || "https://localhost";
 /** chaos-control, reached directly when the client path itself is being degraded. */
@@ -40,16 +47,23 @@ export const REGIONS = ["muntenia", "banat", "dobrogea"];
 /** Multipart upload through POST /api/v1/files; returns the receipt or undefined. */
 export function upload(headers, category, bytes, salt, extraTags = {}) {
   const body = payload(bytes, salt);
-  const res = http.post(
-    `${BASE}/api/v1/files`,
-    {
-      category,
-      region: REGIONS[salt % REGIONS.length],
-      description: `k6 ${category}`,
-      file: http.file(body, `k6-${category}-${salt}.bin`, "application/octet-stream"),
-    },
-    { headers, tags: { name: "upload", category, ...extraTags }, timeout: "120s" },
-  );
+  const form = {
+    category,
+    region: REGIONS[salt % REGIONS.length],
+    description: `k6 ${category}`,
+    file: http.file(body, `k6-${category}-${salt}.bin`, "application/octet-stream"),
+  };
+  let res;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      uploadRetries.add(1, { category });
+      sleep(0.5 * attempt);
+    }
+    res = http.post(`${BASE}/api/v1/files`, form, { headers, tags: { name: "upload", category, ...extraTags }, timeout: "120s" });
+    // Only gateway and connection failures are retried: there the API never acknowledged
+    // the file. A 4xx or a 201 is final.
+    if (!RETRYABLE.has(res.status)) break;
+  }
   const ok = check(res, { [`${category} upload 201`]: (r) => r.status === 201 });
   if (!ok) return undefined;
   const receipt = res.json();
