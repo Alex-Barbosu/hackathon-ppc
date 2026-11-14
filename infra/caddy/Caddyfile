@@ -5,6 +5,13 @@
 
 # The /api upstream, shared by the public site and the internal listener below.
 (filegrid_api) {
+	# The gateway span is the root of every API trace, so Tempo shows an upload from the
+	# moment it reached FileGrid's only door down to the storage write. Caddy passes the
+	# W3C traceparent on to filegrid-api, which continues the same trace (or joins the
+	# client's trace when one was sent, e.g. the meter simulator's).
+	tracing {
+		span "caddy /api"
+	}
 	reverse_proxy {
 		# One upstream per replica, from Docker DNS (A records of the service name), so
 		# round robin spreads requests over every `make scale N=3` replica. A plain

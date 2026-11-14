@@ -57,6 +57,46 @@ class FileMetadataDbTest {
     }
 
     @Test
+    void anIdenticalFileIsFoundByCategoryHashSizeAndRegion() {
+        UUID id = UUID.randomUUID();
+        String sha = "c".repeat(64);
+        repo.insert(rowWith(id, "outage", sha, "banat", "stored"), null, null);
+        repo.insert(rowWith(UUID.randomUUID(), "outage", sha, null, "stored"), null, null);
+
+        assertThat(repo.findDuplicate("outage", sha, 100, "banat")).map(FileRow::id).contains(id);
+        assertThat(repo.findDuplicate("outage", sha, 100, null)).as("no region matches only no region").isPresent();
+        assertThat(repo.findDuplicate("outage", sha, 100, "muntenia")).isEmpty();
+        assertThat(repo.findDuplicate("video", sha, 100, "banat")).as("another category").isEmpty();
+        assertThat(repo.findDuplicate("outage", sha, 101, "banat")).as("another size").isEmpty();
+        assertThat(repo.findDuplicate("outage", "d".repeat(64), 100, "banat")).isEmpty();
+    }
+
+    @Test
+    void aCorruptFileIsNeverTheOneAnUploadIsMergedWith() {
+        String sha = "e".repeat(64);
+        repo.insert(rowWith(UUID.randomUUID(), "outage", sha, "banat", "corrupt"), null, null);
+        UUID spooled = UUID.randomUUID();
+        repo.insert(rowWith(spooled, "outage", sha, "banat", "spooled"), null, null);
+
+        assertThat(repo.findDuplicate("outage", sha, 100, "banat")).map(FileRow::id).contains(spooled);
+    }
+
+    @Test
+    void theOldestMatchWins() {
+        String sha = "f".repeat(64);
+        UUID older = UUID.randomUUID();
+        repo.insert(rowWith(older, "outage", sha, "dobrogea", "stored"), null, null);
+        repo.insert(rowWith(UUID.randomUUID(), "outage", sha, "dobrogea", "stored"), null, null);
+
+        assertThat(repo.findDuplicate("outage", sha, 100, "dobrogea")).map(FileRow::id).contains(older);
+    }
+
+    private static FileRow rowWith(UUID id, String category, String sha, String region, String status) {
+        return new FileRow(id, category, "s3", "filegrid-outage/" + id, 100, sha, "application/octet-stream",
+                "fault.bin", null, region, null, "dispatch", false, status, null, OffsetDateTime.now(), null);
+    }
+
+    @Test
     void aFileWithNoMetadataKeepsTheEmptyObject() {
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();

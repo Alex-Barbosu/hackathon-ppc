@@ -92,6 +92,34 @@ pause() {
   fi
 }
 
+# "up" when FileGrid itself reports a storage reachable AND its circuit closed, else "down".
+# The container being up is not enough: after a restart filegrid-api keeps the circuit open
+# for a while, and until it closes an upload still lands in the fallback.
+storage_state() {
+  o=$(curl -sk -H "authorization: Bearer ${ADMIN}" "${BASE}/api/v1/storages/health" \
+    | tr -d ' \n' | sed -n "s/.*\({\"storage\":\"$1\"[^}]*}\).*/\1/p")
+  case "$o" in *'"up":true'*'"circuitOpen":false'*) printf up ;; *) printf down ;; esac
+}
+
+# Waits until FileGrid reports a storage usable, with a visible countdown:
+# wait_storage <db|s3|ftp> <seconds>. Returns 1 on timeout.
+wait_storage() {
+  start=$(date +%s); limit=$2
+  while :; do
+    n=$(( $(date +%s) - start ))
+    if [ "$(storage_state "$1")" = up ]; then
+      [ -t 1 ] && printf '\r\033[K'
+      ok "FileGrid reports $1 up, circuit closed, after ${n} s"
+      return 0
+    fi
+    [ "$n" -ge "$limit" ] && { [ -t 1 ] && printf '\r\033[K'; return 1; }
+    # On a terminal the countdown rewrites one line; in a log it prints every 10 s.
+    if [ -t 1 ]; then printf '\r  %s⏳%s waiting for FileGrid to see %s again: %3d s left ' "$Y" "$N" "$1" $((limit - n))
+    elif [ $((n % 10)) -lt 2 ]; then note "waiting for FileGrid to see $1 again: $((limit - n)) s left"; fi
+    sleep 2
+  done
+}
+
 # Polls until a command prints the expected text: wait_for <seconds> <expected> <command...>
 wait_for() {
   limit=$1; want=$2; shift 2

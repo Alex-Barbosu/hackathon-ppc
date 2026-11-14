@@ -371,6 +371,95 @@ class FileServiceEncryptionAuditTest {
     // ------------------------------------------------------------------ test double
 
     /** A storage backend in memory; it records what it was told about each write. */
+    // ------------------------------------------------------------------ content dedup
+
+    private FileService.Stored putOutage(byte[] bytes, String region, Storage force) {
+        var req = new FileService.UploadRequest(Category.OUTAGE, region, null, "record.bin", "application/octet-stream",
+                bytes.length, "dispatch", force);
+        return service.put(req, () -> new ByteArrayInputStream(bytes));
+    }
+
+    private void theDatabaseKnows(FileRow existing, byte[] bytes, String region) throws Exception {
+        when(repo.findDuplicate(eq("outage"), eq(sha256(bytes)), eq((long) bytes.length), eq(region)))
+                .thenReturn(Optional.of(existing));
+    }
+
+    @Test
+    void theSameOutageFileUploadedTwiceIsStoredOnce() throws Exception {
+        byte[] bytes = document(5000);
+        FileService.Stored first = putOutage(bytes, "banat", null);
+        FileRow existing = savedRow;
+        theDatabaseKnows(existing, bytes, "banat");
+
+        FileService.Stored second = putOutage(bytes, "banat", null);
+
+        assertThat(first.duplicate()).isFalse();
+        assertThat(second.duplicate()).isTrue();
+        assertThat(second.receipt().id()).as("the existing file's receipt").isEqualTo(first.receipt().id());
+        assertThat(second.receipt().sha256()).isEqualTo(first.receipt().sha256());
+        assertThat(second.receipt().signature()).isEqualTo(first.receipt().signature());
+        assertThat(s3.objects).as("the second copy was thrown away").hasSize(1);
+        verify(repo, org.mockito.Mockito.times(1)).insert(any(FileRow.class), any(), any());
+    }
+
+    @Test
+    void anExistingFileThatNoLongerMatchesItsHashIsNotUsed() throws Exception {
+        byte[] bytes = document(5000);
+        putOutage(bytes, "banat", null);
+        FileRow existing = savedRow;
+        theDatabaseKnows(existing, bytes, "banat");
+        byte[] damaged = bytes.clone();
+        damaged[10] ^= 1;
+        s3.objects.put(existing.objectKey(), damaged);
+
+        FileService.Stored second = putOutage(bytes, "banat", null);
+
+        assertThat(second.duplicate()).as("good bytes are never replaced by a damaged file").isFalse();
+        assertThat(second.receipt().id()).isNotEqualTo(existing.id().toString());
+        assertThat(s3.objects).hasSize(2);
+    }
+
+    @Test
+    void anExistingFileWhoseObjectIsGoneIsNotUsed() throws Exception {
+        byte[] bytes = document(5000);
+        putOutage(bytes, "banat", null);
+        FileRow existing = savedRow;
+        theDatabaseKnows(existing, bytes, "banat");
+        s3.objects.remove(existing.objectKey());
+
+        assertThat(putOutage(bytes, "banat", null).duplicate()).isFalse();
+    }
+
+    @Test
+    void aFailedLookupJustStoresTheFile() throws Exception {
+        byte[] bytes = document(3000);
+        when(repo.findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenThrow(new IllegalStateException("database busy"));
+
+        FileService.Stored stored = putOutage(bytes, "banat", null);
+
+        assertThat(stored.duplicate()).isFalse();
+        assertThat(s3.objects).hasSize(1);
+    }
+
+    @Test
+    void aForcedStorageUploadIsNeverMerged() throws Exception {
+        byte[] bytes = document(3000);
+
+        putOutage(bytes, "banat", Storage.S3);
+
+        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+    }
+
+    @Test
+    void anEncryptedAuditedDocumentIsNeverMerged() {
+        upload(Category.DOCUMENT, document(3000), "connections");
+        upload(Category.DOCUMENT, document(3000), "connections");
+
+        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        assertThat(ftp.objects).hasSize(2);
+    }
+
     // ------------------------------------------------------------------ COMTRADE metadata
 
     private static final String CFG = String.join("\r\n", "PLOIESTI NORD,DFR-7,1999", "3,1A,2D",
