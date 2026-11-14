@@ -89,4 +89,33 @@ class PolicyServiceTest {
         assertThatThrownBy(() -> service.loadAndValidate(bad))
                 .isInstanceOf(PolicyValidationException.class);
     }
+
+    @Test
+    void aRequestBodyIsHeldToTheSameSchemaAsTheFile() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        assertThat(service.validate(new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readTree(VALID)).version()).isEqualTo(1);
+        assertThatThrownBy(() -> service.validate(mapper.readTree("{\"version\":1}")))
+                .isInstanceOf(PolicyValidationException.class);
+        assertThatThrownBy(() -> service.validate(null)).isInstanceOf(PolicyValidationException.class);
+        assertThatThrownBy(() -> service.validate(mapper.nullNode())).isInstanceOf(PolicyValidationException.class);
+    }
+
+    @Test
+    void installSwapsThePolicyInUseAtOnce() {
+        var changed = new Policy(7, service.current().categories());
+
+        service.install(changed);
+
+        assertThat(service.current().version()).isEqualTo(7);
+        assertThat(service.primaryStorageFor(Category.OUTAGE)).isEqualTo(Storage.S3);
+    }
+
+    @Test
+    void anAbsentAuditFlagReadsAsFalseAndAnUnsetChunkSizeStaysUnset() {
+        assertThat(service.policyFor(Category.OUTAGE).audit()).isFalse();
+        assertThat(service.policyFor(Category.OUTAGE).chunkMb()).isNull();
+        assertThat(service.policyFor(Category.VIDEO).chunkMb()).isEqualTo(16);
+        assertThat(service.policyFor(Category.DOCUMENT).auditEnabled()).isTrue();
+    }
 }
