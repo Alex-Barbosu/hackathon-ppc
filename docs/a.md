@@ -641,3 +641,32 @@ has no fallback at all. The Storage Lab applied `document` as `s3`/`s3` before t
 two fields, so the check is in `PolicyService.validate`, which both the file and the API go through. The policy in force is not
 changed by a refused request. `make a-policy-check` covers it. Unit tests: 3 new (service); 3 existing manager tests that
 used `outage` `db`/`db` now use `ftp`.
+
+## Slow lane: a 1 GB video over a bad link
+
+The field app's worst case, run with `make a-slowlane-check` (MIB=1024 LATENCY=300 LOSS=10). The script sets the slow lane the way the
+Chaos page does (`POST /chaos/network`, target `client`), uploads through `https://localhost:8443` with tus, and after each broken
+connection asks the server for its offset (`HEAD`) and goes on from there. It clears the lane at the end, also after an error.
+
+What the lane does (Zone B's design): latency split over both directions, and `lossPct` resets that share of connections about 1 s
+after they open. A TCP proxy cannot drop single packets, so a lossy link shows up as a broken transfer to resume.
+
+| Check | Result (1 GiB, 300 ms, 10 %) |
+| --- | --- |
+| the lane is really slow | a health request: 6 ms on port 443, 614 ms on 8443 |
+| upload | finished in 70 s (14.6 MiB/s); the link broke 7 times, each time the client asked for the offset and went on |
+| size and SHA-256 of what is stored | equal to what was sent (1 073 741 824 bytes) |
+| a normal download | same bytes |
+| `verify` | ok |
+| API heap while it ran | 51 to 163 MiB for a 1 GiB file |
+
+Honest reading:
+
+- A break costs at most one 16 MiB chunk to send again: 7 breaks is at most 112 MiB, about 11 % of the file. The server keeps the bytes
+  that arrived before a connection broke (the resume check in `make a-tus-check` shows it), so the real cost is lower. I did not
+  measure it here: the client asks for the offset right after a break, and the server may not have noticed the break yet, so the
+  number is not reliable. A smaller `chunkMb` would lose less per break and cost more requests.
+- With 300 ms of latency but no limit on bandwidth the lane is slow to answer, not slow to carry. For a thin link, add `bandwidthKbps`
+  in the Chaos page; that is not part of this proof.
+- The download is done on the normal port. A download that breaks cannot be resumed (the API has no range requests), so a broken
+  download starts again. For the demo that is the video player's job, not the upload's.
