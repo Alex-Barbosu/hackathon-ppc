@@ -592,12 +592,12 @@ export interface components {
             revision?: string;
             /**
              * Format: date-time
-             * @description Trigger time
+             * @description Trigger time, as UTC
              */
             faultTime?: string;
             /**
              * Format: date-time
-             * @description First sample
+             * @description First sample, as UTC
              */
             startTime?: string;
             /** @example 1200 */
