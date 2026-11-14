@@ -9,7 +9,7 @@ HOST ?= localhost
 
 include make/a.mk make/b.mk make/c.mk
 
-.PHONY: help up down reset logs ps gen test trust scale check
+.PHONY: help up down reset logs ps gen test trust scale check demo
 
 help: ## Show every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -45,6 +45,8 @@ ps: ## Show service health
 scale: ## Run N replicas of the API behind the gateway: make scale N=3
 	$(COMPOSE) up -d --no-recreate --scale filegrid-api=$(or $(N),3) --wait
 
+demo: ## Live demo with pauses: baseline, storm x10, stop S3, bad link, corrupt, reset (DEMO_AUTO=5 = unattended)
+	@./scripts/demo.sh
 gen: ## Regenerate API clients from contracts/openapi.yaml
 	cd apps/web && npm run gen:api
 
