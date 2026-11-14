@@ -23,6 +23,7 @@ import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.files.FileRow;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
 import ro.ppc.filegrid.policy.CategoryPolicy;
+import ro.ppc.filegrid.observability.Spans;
 import ro.ppc.filegrid.policy.PolicyService;
 import ro.ppc.filegrid.resilience.Bulkheads;
 import ro.ppc.filegrid.storage.S3Storage;
@@ -57,15 +58,17 @@ public class TusService {
     private final Tracer tracer;
     private final DigestCache digests = new DigestCache();
     private final Bulkheads bulkheads;
+    private final Spans spans;
 
     public TusService(PolicyService policy, TusStore store, TusObjectStore objects,
-                      FileGridMetrics metrics, Tracer tracer, Bulkheads bulkheads) {
+                      FileGridMetrics metrics, Tracer tracer, Bulkheads bulkheads, Spans spans) {
         this.policy = policy;
         this.store = store;
         this.objects = objects;
         this.metrics = metrics;
         this.tracer = tracer;
         this.bulkheads = bulkheads;
+        this.spans = spans;
     }
 
     /** Result of one PATCH: the new offset, and the file id once the upload has finished. */
@@ -105,6 +108,10 @@ public class TusService {
         }
         int partSize = (cp.chunkMb() == null ? DEFAULT_PART_MB : cp.chunkMb()) * 1024 * 1024;
         UUID id = UUID.randomUUID();
+        try (Spans.Scope route = spans.open("policy.route", category, cp.primaryStorage(), id, length)) {
+            route.tag("filegrid.fallback_storage", cp.fallback());
+            route.tag("filegrid.resumable", true);
+        }
         String bucket = S3Storage.bucketFor(category);
         String key = id.toString();
         String contentType = blankToNull(metadata.get("filetype")) == null
@@ -267,7 +274,16 @@ public class TusService {
     private PatchResult finish(TusUpload up, MessageDigest digest, long busyDelta, long consumed) {
         UUID id = up.id();
         List<TusStore.PartRef> parts = store.parts(id);
-        s3Run(() -> objects.complete(up.bucket(), up.objectKey(), up.s3UploadId(), parts));
+        try (Spans.Scope span = spans.open("storage.write", up.category(), Storage.S3, id, up.length())) {
+            span.tag("filegrid.purpose", "complete_upload");
+            span.tag("filegrid.parts", parts.size());
+            try {
+                s3Run(() -> objects.complete(up.bucket(), up.objectKey(), up.s3UploadId(), parts));
+            } catch (RuntimeException e) {
+                span.error(e);
+                throw e;
+            }
+        }
 
         long stored = s3Call(() -> objects.size(up.bucket(), up.objectKey()));
         if (stored != up.length()) {
@@ -279,7 +295,10 @@ public class TusService {
             sha = Hashing.hex(digest.digest());
         } else {
             log.warn("tus digest unavailable, hashing the stored object file_id={}", id);
-            sha = hashStored(up);
+            try (Spans.Scope verify = spans.open("integrity.verify", up.category(), Storage.S3, id, up.length())) {
+                verify.tag("filegrid.purpose", "hash_after_upload");
+                sha = hashStored(up);
+            }
         }
         quietly(() -> objects.deleteTail(up.bucket(), up.objectKey()));
 
@@ -312,7 +331,15 @@ public class TusService {
     }
 
     private String putPart(TusUpload up, int partNumber, byte[] buf, int len) {
-        return s3Call(() -> objects.putPart(up.bucket(), up.objectKey(), up.s3UploadId(), partNumber, buf, len));
+        try (Spans.Scope span = spans.open("storage.write", up.category(), Storage.S3, up.id(), (long) len)) {
+            span.tag("filegrid.part_number", partNumber);
+            try {
+                return s3Call(() -> objects.putPart(up.bucket(), up.objectKey(), up.s3UploadId(), partNumber, buf, len));
+            } catch (RuntimeException e) {
+                span.error(e);
+                throw e;
+            }
+        }
     }
 
     // --------------------------------------------------------------- cleanup

@@ -25,6 +25,7 @@ import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.files.dto.FileReceipt;
 import ro.ppc.filegrid.files.dto.VerifyResult;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
+import ro.ppc.filegrid.observability.Spans;
 import ro.ppc.filegrid.policy.CategoryPolicy;
 import ro.ppc.filegrid.policy.PolicyService;
 import ro.ppc.filegrid.resilience.Bulkheads;
@@ -76,12 +77,13 @@ public class FileService {
     private final StorageGuard guard;
     private final SpoolRepository spoolItems;
     private final Bulkheads bulkheads;
+    private final Spans spans;
 
     public FileService(PolicyService policy, StorageRegistry storages, FileRepository files,
                        FileGridMetrics metrics, ReceiptSigner signer,
                        io.micrometer.tracing.Tracer tracer, EnvelopeCrypto crypto,
                        AuditLogService audit, TransactionTemplate tx, StorageGuard guard,
-                       SpoolRepository spoolItems, Bulkheads bulkheads) {
+                       SpoolRepository spoolItems, Bulkheads bulkheads, Spans spans) {
         this.policy = policy;
         this.storages = storages;
         this.files = files;
@@ -94,6 +96,7 @@ public class FileService {
         this.guard = guard;
         this.spoolItems = spoolItems;
         this.bulkheads = bulkheads;
+        this.spans = spans;
     }
 
     /** Where a category's bytes go. {@code forceStorage} (admin, Storage Lab) overrides policy. */
@@ -140,8 +143,26 @@ public class FileService {
     }
 
     private FileReceipt storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy) {
-        List<Storage> plan = plan(req, catPolicy);
         UUID id = UUID.randomUUID();
+        // Every log line of this upload carries its category and file id, inside a span or not.
+        try (Spans.Context ignored = Spans.context(req.category(), null, id)) {
+            return storeWithFallback(req, source, catPolicy, id);
+        }
+    }
+
+    private FileReceipt storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id) {
+        List<Storage> plan;
+        try (Spans.Scope route = spans.open("policy.route", req.category(), null, id, req.sizeBytes())) {
+            plan = plan(req, catPolicy);
+            route.tag("filegrid.storage", plan.get(0).slug());
+            route.tag("filegrid.fallback_storage", plan.size() > 1 ? plan.get(1).slug() : "none");
+            route.tag("filegrid.forced", req.forceStorage() != null);
+            route.tag("filegrid.encrypted", catPolicy.encrypt());
+            var inForce = policy.current();
+            if (inForce != null) {
+                route.tag("filegrid.policy_version", inForce.version());
+            }
+        }
         List<String> tried = new ArrayList<>();
         for (int i = 0; i < plan.size(); i++) {
             Storage target = plan.get(i);
@@ -154,9 +175,17 @@ public class FileService {
                     // A refusal by an open circuit never touched the backend, so it is not an error of its own.
                     metrics.recordOp(req.category(), e.storage(), FileGridMetrics.Op.WRITE,
                             FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
+                } else {
+                    // The backend was not called, so there is no write span. Show the skipped attempt in the trace.
+                    try (Spans.Scope skipped = spans.open("storage.write", req.category(), e.storage(), id, req.sizeBytes())) {
+                        skipped.tag("filegrid.circuit_open", true);
+                        skipped.error(e);
+                    }
                 }
-                log.warn("storage unavailable for a write file_id={} category={} storage={} circuitOpen={}",
-                        id, req.category().slug(), e.storage().slug(), e.circuitOpen());
+                try (Spans.Context ignored = Spans.context(null, e.storage(), null)) {
+                    log.warn("storage unavailable for a write file_id={} category={} storage={} circuitOpen={}",
+                            id, req.category().slug(), e.storage().slug(), e.circuitOpen());
+                }
             } catch (ClientStreamException e) {
                 throw ApiException.badRequest("the upload was interrupted before it finished");
             }
@@ -192,7 +221,7 @@ public class FileService {
             Sink sink = new Sink(adapter, target, id, req, toStore, tracked, hashed, counted,
                     // Ciphertext reveals nothing about the file type, so do not hand the real one to storage.
                     encrypt ? "application/octet-stream" : req.contentType(),
-                    encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes());
+                    encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes(), fallback);
 
             Written written = persist(sink, catPolicy, intended, encrypt, envelope, traceId);
 
@@ -200,8 +229,10 @@ public class FileService {
                     fallback ? FileGridMetrics.Outcome.FALLBACK : FileGridMetrics.Outcome.OK, written.took());
             metrics.recordBytes(req.category(), target, "in", written.plainSize());
             // Log file_id only: never the document name or content.
-            log.info("stored file_id={} category={} storage={} size={} encrypted={} fallback={}",
-                    id, req.category().slug(), target.slug(), written.plainSize(), encrypt, fallback);
+            try (Spans.Context ignored = Spans.context(req.category(), target, id)) {
+                log.info("stored file_id={} category={} storage={} size={} encrypted={} fallback={}",
+                        id, req.category().slug(), target.slug(), written.plainSize(), encrypt, fallback);
+            }
 
             String signature = signer.sign(id.toString(), req.category().slug(), target.slug(),
                     written.plainSize(), written.sha());
@@ -268,7 +299,7 @@ public class FileService {
     /** Everything needed to push one upload into a backend. */
     private record Sink(StorageAdapter adapter, Storage target, UUID id, UploadRequest req, InputStream stream,
                         TrackingInputStream tracked, DigestInputStream hashed, CountingInputStream counted,
-                        String storedType, long storedLength) {
+                        String storedType, long storedLength, boolean fallback) {
     }
 
     /** What the backend took: the hash and size of the ORIGINAL bytes, and how long it took. */
@@ -278,15 +309,19 @@ public class FileService {
     private Written write(Sink s) throws Exception {
         long started = System.nanoTime();
         StoredRef ref;
-        try {
-            ref = s.adapter().write(s.stream(), s.id().toString(),
-                    WriteMeta.of(s.req().category(), s.storedType(), s.storedLength()));
-        } catch (Exception e) {
-            if (s.tracked().failed()) {
-                // Reading the request body failed: the client's connection, not this storage.
-                throw new ClientStreamException(s.tracked().failure());
+        try (Spans.Scope span = spans.open("storage.write", s.req().category(), s.target(), s.id(), s.req().sizeBytes())) {
+            span.tag("filegrid.fallback", s.fallback());
+            try {
+                ref = s.adapter().write(s.stream(), s.id().toString(),
+                        WriteMeta.of(s.req().category(), s.storedType(), s.storedLength()));
+            } catch (Exception e) {
+                span.error(e);
+                if (s.tracked().failed()) {
+                    // Reading the request body failed: the client's connection, not this storage.
+                    throw new ClientStreamException(s.tracked().failure());
+                }
+                throw e;
             }
-            throw e;
         }
         return new Written(ref, Hashing.hex(s.hashed().getMessageDigest().digest()), s.counted().count(),
                 Duration.ofNanos(System.nanoTime() - started));
@@ -367,7 +402,7 @@ public class FileService {
         Storage storage = Storage.fromSlug(row.storage());
         StorageAdapter adapter = storages.get(storage);
 
-        String actual = hashStored(adapter, row);
+        String actual = checkIntegrity(adapter, row, category, storage);
         if (actual == null) {
             throw ApiException.notFound("stored object missing for " + id);
         }
@@ -385,15 +420,23 @@ public class FileService {
             throw new IntegrityException(category, storage, row.sha256(), actual);
         }
 
-        InputStream stream;
+        // This span is open until the client has the last byte (the stream is closed), so its length is the
+        // real time spent reading from storage for this download.
+        Spans.Scope delivery = spans.start("storage.read", category, storage, id, row.sizeBytes());
+        delivery.tag("filegrid.purpose", "download");
+        InputStream opened;
         try {
-            stream = openPlain(adapter, row);
+            opened = openPlain(adapter, row);
         } catch (Exception e) {
+            delivery.error(e);
+            delivery.close();
             throw ApiException.storageUnavailable("read from " + storage.slug() + " failed");
         }
-        if (stream == null) {
+        if (opened == null) {
+            delivery.close();
             throw ApiException.notFound("stored object missing for " + id);
         }
+        InputStream stream = spans.endOnClose(delivery, opened);
         files.markVerified(id);
         metrics.recordOp(category, storage, FileGridMetrics.Op.READ,
                 FileGridMetrics.Outcome.OK, Duration.ofNanos(System.nanoTime() - started));
@@ -409,7 +452,7 @@ public class FileService {
         StorageAdapter adapter = storages.get(storage);
 
         long started = System.nanoTime();
-        String actual = hashStored(adapter, row);
+        String actual = checkIntegrity(adapter, row, category, storage);
         Duration took = Duration.ofNanos(System.nanoTime() - started);
         boolean ok = actual != null && actual.equalsIgnoreCase(row.sha256());
 
@@ -450,6 +493,35 @@ public class FileService {
     private <T> T guarded(StorageAdapter adapter, StorageOp<T> op) throws Exception {
         // The spool is local disk and has no circuit.
         return adapter.kind() == Storage.SPOOL ? op.run() : guard.call(adapter.kind(), op);
+    }
+
+    /**
+     * The hashing pass, as two spans: {@code integrity.verify} (is the stored file what was recorded?) around
+     * {@code storage.read} (the reading of it). A mismatch or a failed decryption marks the verify span as failed.
+     */
+    private String checkIntegrity(StorageAdapter adapter, FileRow row, Category category, Storage storage) {
+        try (Spans.Scope verify = spans.open("integrity.verify", category, storage, row.id(), row.sizeBytes())) {
+            String actual;
+            try (Spans.Scope read = spans.open("storage.read", category, storage, row.id(), row.sizeBytes())) {
+                try {
+                    actual = hashStored(adapter, row);
+                } catch (RuntimeException e) {
+                    read.error(e);
+                    verify.error(e);
+                    throw e;
+                }
+            }
+            if (actual == null) {
+                verify.tag("filegrid.missing", true);
+            } else {
+                boolean intact = actual.equalsIgnoreCase(row.sha256());
+                verify.tag("filegrid.integrity_ok", intact);
+                if (!intact) {
+                    verify.error(new IntegrityException(category, storage, row.sha256(), actual));
+                }
+            }
+            return actual;
+        }
     }
 
     /** Hex SHA-256 of the original bytes as stored; {@link #DECRYPTION_FAILED} if ciphertext was altered; null if missing. */

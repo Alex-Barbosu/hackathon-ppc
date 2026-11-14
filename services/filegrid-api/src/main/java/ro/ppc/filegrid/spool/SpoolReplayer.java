@@ -16,6 +16,7 @@ import ro.ppc.filegrid.files.FileRepository;
 import ro.ppc.filegrid.files.FileRow;
 import ro.ppc.filegrid.files.FileService;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
+import ro.ppc.filegrid.observability.Spans;
 import ro.ppc.filegrid.resilience.StorageDownException;
 import ro.ppc.filegrid.resilience.StorageGuard;
 import ro.ppc.filegrid.storage.StorageAdapter;
@@ -50,10 +51,11 @@ public class SpoolReplayer {
     private final FileService fileService;
     private final FileGridMetrics metrics;
     private final SpoolGauges gauges;
+    private final Spans spans;
 
     public SpoolReplayer(SpoolRepository items, StorageRegistry storages, StorageGuard guard,
                          FileRepository files, FileService fileService, FileGridMetrics metrics,
-                         SpoolGauges gauges) {
+                         SpoolGauges gauges, Spans spans) {
         this.items = items;
         this.storages = storages;
         this.guard = guard;
@@ -61,6 +63,7 @@ public class SpoolReplayer {
         this.fileService = fileService;
         this.metrics = metrics;
         this.gauges = gauges;
+        this.spans = spans;
     }
 
     @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S")
@@ -125,8 +128,18 @@ public class SpoolReplayer {
                     return false;
                 }
                 String type = row.encrypted() ? "application/octet-stream" : row.contentType();
-                ref = guard.call(item.target(), () -> target.write(in, item.fileId().toString(),
-                        WriteMeta.of(item.category(), type, size)));
+                // A replay starts its own trace: nothing is waiting on it, and it may run long after the upload.
+                try (Spans.Scope write = spans.open("storage.write", item.category(), item.target(), item.fileId(), size)) {
+                    write.tag("filegrid.purpose", "spool_replay");
+                    write.tag("filegrid.attempt", item.attempts());
+                    try {
+                        ref = guard.call(item.target(), () -> target.write(in, item.fileId().toString(),
+                                WriteMeta.of(item.category(), type, size)));
+                    } catch (RuntimeException e) {
+                        write.error(e);
+                        throw e;
+                    }
+                }
             }
             files.relocate(item.fileId(), item.target().slug(), ref.key(), "stored");
             return finish(item, files.find(item.fileId()).orElse(row), started);

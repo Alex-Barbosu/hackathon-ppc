@@ -11,6 +11,7 @@ import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.meters.dto.MeterReadingFile;
 import ro.ppc.filegrid.resilience.Bulkheads;
 import ro.ppc.filegrid.domain.Category;
+import ro.ppc.filegrid.observability.Spans;
 import ro.ppc.filegrid.resilience.StorageDownException;
 import ro.ppc.filegrid.resilience.StorageGuard;
 
@@ -35,15 +36,17 @@ public class MeterService {
     private final TransactionTemplate tx;
     private final MeterSpool spool;
     private final Bulkheads bulkheads;
+    private final Spans spans;
 
     public MeterService(MeterRepository repo, ObjectMapper json, StorageGuard guard, TransactionTemplate tx,
-                        MeterSpool spool, Bulkheads bulkheads) {
+                        MeterSpool spool, Bulkheads bulkheads, Spans spans) {
         this.repo = repo;
         this.json = json;
         this.guard = guard;
         this.tx = tx;
         this.spool = spool;
         this.bulkheads = bulkheads;
+        this.spans = spans;
     }
 
     public enum Result { ACCEPTED, DUPLICATE }
@@ -70,20 +73,27 @@ public class MeterService {
         } catch (Exception e) {
             throw ApiException.badRequest("invalid meter reading body");
         }
-        try {
-            boolean inserted = guard.call(Storage.DB, () ->
-                    tx.execute(status -> repo.insertIfNew(idempotencyKey, body, raw, traceId)));
-            // Log meter_id + result only; a meter reading carries no personal file content.
-            log.info("meter reading meter_id={} seq={} result={}",
-                    body.meterId(), body.seq(), inserted ? "accepted" : "duplicate");
-            return new Ingested(inserted ? Result.ACCEPTED : Result.DUPLICATE, false);
-        } catch (StorageDownException e) {
-            return park(idempotencyKey, body, traceId);
+        try (Spans.Scope write = spans.open("storage.write", Category.METER, Storage.DB, null, null)) {
+            try {
+                boolean inserted = guard.call(Storage.DB, () ->
+                        tx.execute(status -> repo.insertIfNew(idempotencyKey, body, raw, traceId)));
+                write.tag("filegrid.duplicate", !inserted);
+                // Log meter_id + result only; a meter reading carries no personal file content.
+                log.info("meter reading meter_id={} seq={} result={}",
+                        body.meterId(), body.seq(), inserted ? "accepted" : "duplicate");
+                return new Ingested(inserted ? Result.ACCEPTED : Result.DUPLICATE, false);
+            } catch (StorageDownException e) {
+                write.error(e);
+                write.tag("filegrid.circuit_open", e.circuitOpen());
+            }
         }
+        // The database could not take it: park it (the policy's fallback), in a span of its own.
+        return park(idempotencyKey, body, traceId);
     }
 
     private Ingested park(String idempotencyKey, MeterReadingFile body, String traceId) {
-        try {
+        try (Spans.Scope write = spans.open("storage.write", Category.METER, Storage.SPOOL, null, null)) {
+            write.tag("filegrid.fallback", true);
             boolean parked = spool.put(idempotencyKey, body, traceId);
             log.info("meter reading parked in the spool meter_id={} seq={}", body.meterId(), body.seq());
             return new Ingested(parked ? Result.ACCEPTED : Result.DUPLICATE, true);

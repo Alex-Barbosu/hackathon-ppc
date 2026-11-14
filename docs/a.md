@@ -465,3 +465,59 @@ Unit tests: 18 new (259 in all): concurrency never above the workers, queue and 
 timeout, worker given back on failure, live resize, queue of 0, interrupted waiter, a burst of 200; and at the service level
 (a full category is refused before any storage is touched, the others upload, tus chunk and meter reading) and HTTP level (`503`
 plus `Retry-After`).
+
+## Traces and logs end to end (OpenTelemetry)
+
+One upload can be followed from the HTTP request down to the storage write, and its log lines are tied to the same trace.
+
+### Spans (names and attributes are the ones in `contracts/metrics.md`)
+
+| Span | When | Attributes |
+| --- | --- | --- |
+| `http <method> <route>` | every request (Spring's own, already there) | route template, status |
+| `policy.route` | an upload or tus upload is routed | category, storage chosen, fallback storage, forced, encrypted, policy version |
+| `storage.write` | each storage tried (one per attempt) | category, storage, file_id, size_bytes, fallback; marked error when it failed; `circuit_open` when the circuit refused it |
+| `storage.read` | a download | category, storage, file_id, bytes read; ends when the stream closes |
+| `integrity.verify` | the hash check on read-back | category, storage, file_id, `integrity_ok` |
+
+The same spans exist for tus (one `storage.write` per part and one for the final join), for meter readings (`db`, or the spool
+fallback) and for spool replay (`purpose=spool_replay`).
+
+A failed primary shows as it happened: `storage.write` (error) on `s3`, then `storage.write` on `db`.
+
+### Logs
+
+- Console lines are JSON (ECS) with `trace_id` and `span_id` (renamed from Boot's camelCase to the contract's names).
+- `category`, `storage` and `file_id` are added while the code runs inside that upload, in a span or not.
+- The same lines (INFO and above) are sent over OTLP to the collector, then to Loki. They keep the trace id, span id, `category`,
+  `storage` and `file_id`. Lines from before the exporter starts are buffered (500), not lost.
+- Only the file id is logged. No file name and no content, in spans, console or Loki.
+
+### Noise left out
+
+No trace for `/api/v1/health`, `/api/v1/storages/health`, `/actuator/*` or scheduled jobs (replay, probes). Otherwise Tempo
+would fill with one trace every few seconds.
+
+### Proof (`make a-trace-check`)
+
+| Check | Result |
+| --- | --- |
+| Upload, then ask Tempo for the receipt's `trace_id` | tree `http post /api/v1/files` > `policy.route` + `storage.write` |
+| Same request in the API's JSON log | has `trace_id`, `span_id`, `category`, `storage`, `file_id` |
+| Same request in Loki | found by `file_id` |
+| Health checks, scrapes, jobs | no traces |
+| seaweedfs stopped, then upload (skip with `NO_CHAOS=1`) | `storage.write` (error) on `s3`, then `storage.write` on `db` |
+| File name in spans, console or Loki | not found |
+
+To look by hand: Grafana, Explore, Tempo, paste the `trace_id` from the upload receipt. In Loki, search `{service_name="filegrid-api"}`
+with the `file_id`.
+
+Notes:
+
+- If Tempo says `at least 1 live replicas required` (seen after the laptop slept), `docker compose restart tempo` fixes it. The
+  collector retries, and spans sent in the gap can be lost.
+- Spans are sampled by Boot's setting (`management.tracing.sampling.probability`); the demo keeps it at 1.0.
+
+Unit tests: 38 new: span names and attributes, error marking, the log context put back after a scope, the noise
+filter, the OTLP log appender (early buffer, trace mapping, its own lines skipped), and span trees in the file, tus, meter and
+replay services.

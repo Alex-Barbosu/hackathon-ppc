@@ -39,6 +39,8 @@ class TusServiceTest {
     private PolicyService policy;
     private SimpleMeterRegistry registry;
     private TusService tus;
+    private final io.micrometer.tracing.test.simple.SimpleTracer tracer = new io.micrometer.tracing.test.simple.SimpleTracer();
+    private final ro.ppc.filegrid.observability.Spans spans = new ro.ppc.filegrid.observability.Spans(tracer);
 
     @BeforeEach
     void setUp() {
@@ -57,7 +59,7 @@ class TusServiceTest {
     private TusService newService() {
         Tracer tracer = mock(Tracer.class);
         return new TusService(policy, store, objects, new FileGridMetrics(registry), tracer,
-                new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5)));
+                new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5)), spans);
     }
 
     private static byte[] randomBytes(int n) {
@@ -249,6 +251,50 @@ class TusServiceTest {
         assertStoredExactly(id, data);
     }
 
+    // ------------------------------------------------------------------ spans
+
+    @Test
+    void creatingAnUploadShowsThePolicyDecision() {
+        UUID id = createVideo(1000);
+
+        var route = tracer.getSpans().stream().filter(s -> s.getName().equals("policy.route")).toList();
+        assertThat(route).hasSize(1);
+        assertThat(route.get(0).getTags()).containsEntry("filegrid.category", "video").containsEntry("filegrid.storage", "s3")
+                .containsEntry("filegrid.file_id", id.toString()).containsEntry("filegrid.resumable", "true");
+    }
+
+    @Test
+    void everyPartIsAStorageWriteAndTheCompletionIsOneMore() throws Exception {
+        byte[] data = randomBytes(13 * MB + 123);
+        UUID id = createVideo(data.length);
+        tracer.getSpans().clear();
+
+        send(tus, id, 0, data, 0, data.length);
+
+        var writes = tracer.getSpans().stream().filter(s -> s.getName().equals("storage.write")).toList();
+        var parts = writes.stream().filter(s -> s.getTags().containsKey("filegrid.part_number")).toList();
+        assertThat(parts).extracting(s -> s.getTags().get("filegrid.part_number")).containsExactly("1", "2", "3");
+        assertThat(parts).allSatisfy(s -> assertThat(s.getTags()).containsEntry("filegrid.storage", "s3")
+                .containsEntry("filegrid.file_id", id.toString()).containsEntry("filegrid.category", "video"));
+        assertThat(parts.get(0).getTags()).containsEntry("filegrid.size_bytes", String.valueOf(5 * MB));
+        var done = writes.stream().filter(s -> "complete_upload".equals(s.getTags().get("filegrid.purpose"))).toList();
+        assertThat(done).hasSize(1);
+        assertThat(done.get(0).getTags()).containsEntry("filegrid.parts", "3");
+    }
+
+    @Test
+    void aPartThatFailsIsAFailedSpan() {
+        byte[] data = randomBytes(8 * MB);
+        UUID id = createVideo(data.length);
+        objects.failParts = true;
+        tracer.getSpans().clear();
+
+        assertThatThrownBy(() -> send(tus, id, 0, data, 0, data.length)).isInstanceOf(ApiException.class);
+
+        var part = tracer.getSpans().stream().filter(s -> s.getTags().containsKey("filegrid.part_number")).findFirst().orElseThrow();
+        assertThat(part.getError()).isNotNull();
+    }
+
     // ------------------------------------------------------------------ bulkheads
 
     @Test
@@ -258,7 +304,7 @@ class TusServiceTest {
         when(policy.policyFor(Category.VIDEO)).thenReturn(
                 new CategoryPolicy("s3", "spool", false, 5000, "low", 1, 0, null, 5));
         var bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5));
-        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads);
+        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads, spans);
 
         try (var held = bulkheads.enter(Category.VIDEO)) {
             assertThatThrownBy(() -> send(limited, id, 0, data, 0, 1000))
@@ -278,7 +324,7 @@ class TusServiceTest {
         when(policy.policyFor(Category.VIDEO)).thenReturn(
                 new CategoryPolicy("s3", "spool", false, 5000, "low", 1, 0, null, 5));
         var bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5));
-        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads);
+        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads, spans);
         objects.failParts = true;
 
         for (int i = 0; i < 3; i++) {

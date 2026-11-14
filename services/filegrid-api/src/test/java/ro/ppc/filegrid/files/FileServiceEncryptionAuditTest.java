@@ -118,7 +118,8 @@ class FileServiceEncryptionAuditTest {
         service = new FileService(policy, storages, repo, new FileGridMetrics(registry),
                 new ReceiptSigner("test-secret-for-receipts"), tracer, new EnvelopeCrypto("ab".repeat(32)), audit, tx,
                 new ro.ppc.filegrid.resilience.StorageGuard(registry, 10, 3, 50f, 10), mock(ro.ppc.filegrid.spool.SpoolRepository.class),
-                new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5)));
+                new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5)),
+                ro.ppc.filegrid.observability.Spans.noop());
     }
 
     private static byte[] document(int size) {
