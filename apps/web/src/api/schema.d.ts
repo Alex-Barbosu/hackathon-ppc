@@ -125,10 +125,42 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Download, verifying SHA-256 while streaming */
+        /**
+         * Download, verifying SHA-256 while streaming
+         * @description Authenticated by bearer JWT, or by a short-lived `token` from
+         *     `POST /api/v1/files/{id}/download-link` so a browser can download with a
+         *     plain link and stream straight to disk (1 GB+ videos never sit in browser memory).
+         *     If the hash mismatch is only detected after the 200 headers were sent, the
+         *     server aborts the connection without a clean end, so the client sees a failed
+         *     download, and counts `filegrid_integrity_failures_total`.
+         */
         get: operations["downloadFile"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}/download-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["FileId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a short-lived link for a browser-native, streamed download
+         * @description Same access rules as downloadFile. The token is an HMAC (JWT_SECRET) over
+         *     file id, username and expiry, so it cannot be reused for another file and
+         *     leaks little if it ends up in a proxy log. Every use is audited for documents.
+         */
+        post: operations["createDownloadLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -555,6 +587,14 @@ export interface components {
             traceId: string;
             /** @description HMAC of the receipt fields */
             signature: string;
+        };
+        DownloadLink: {
+            /** @example /api/v1/files/6f1c2b8e-3a1d-4f7e-9c0a-1b2c3d4e5f60/content?token=v1.1763130000.abc123 */
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Expected hash, shown by the UI next to the download */
+            sha256: string;
         };
         FileMeta: components["schemas"]["FileReceipt"] & {
             /** @example statia-ploiesti-2026-11-14.cfg */
@@ -1085,7 +1125,10 @@ export interface operations {
     };
     downloadFile: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Download token from download-link. Bound to this file id, expires after 60 s. */
+                token?: string;
+            };
             header?: never;
             path: {
                 id: components["parameters"]["FileId"];
@@ -1114,6 +1157,29 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    createDownloadLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["FileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Link valid for 60 s */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLink"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     verifyFile: {

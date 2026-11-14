@@ -4,6 +4,9 @@ import type { FileMeta } from "../../lib/domain";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { DownloadButton } from "./DownloadButton";
 
+// Above this, buffering in the browser stops being safe; use a streamed link instead.
+const STREAM_ABOVE_BYTES = 50 * 1024 * 1024;
+
 export function FileCard({ file }: { file: FileMeta }) {
   const name = file.originalName ?? file.id;
   return (
@@ -19,7 +22,7 @@ export function FileCard({ file }: { file: FileMeta }) {
           <HashText value={file.sha256} />
         </div>
       </div>
-      <DownloadButton id={file.id} name={name} />
+      <DownloadButton id={file.id} name={name} streamed={file.category === "video" || file.sizeBytes > STREAM_ABOVE_BYTES} />
     </article>
   );
 }

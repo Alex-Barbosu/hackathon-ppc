@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import Tus from "@uppy/tus";
-import { API_BASE, api } from "../../api/client";
-import { useSession } from "../../state/session";
+import { API_BASE, api, authHeaders } from "../../api/client";
 import type { FileReceipt, Region } from "../../lib/domain";
 
 export type TusPhase = "idle" | "uploading" | "paused" | "waiting" | "done" | "failed";
@@ -48,7 +47,9 @@ export function useTusUpload(region: Region) {
         }
         return retry;
       },
-      onBeforeRequest: (req) => req.setHeader("Authorization", `Bearer ${useSession.getState().token}`),
+      onBeforeRequest: (req) => {
+        for (const [k, v] of Object.entries(authHeaders())) req.setHeader(k, v);
+      },
       onAfterResponse: (_req, res) => {
         const id = res.getHeader("X-FileGrid-File-Id");
         if (id) fileIdHeader.current = id;

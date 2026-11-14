@@ -13,6 +13,18 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
 - Known limit: Library download buffers the file as a Blob so the bearer header can be sent. Fine for outage and
   documents; a 1 GB video download needs a signed-URL or cookie-auth contract change (request for zone A).
 
+## Web: Login and streamed downloads
+
+- Login: `POST /api/v1/auth/login`; the `Session` lives in Zustand, persisted to `sessionStorage` (cleared when the tab
+  closes). `Authorization: Bearer` is added to every `openapi-fetch` call, the buffered download and Uppy/tus requests
+  from one place (`authHeaders()` in `api/client.ts`). A 401 on an authorised request clears the session and returns to Login.
+  Expiry is not checked client-side (the mock returns a 2019 `expiresAt`); the server decides.
+- Downloads: video, and anything over 50 MB, call `createDownloadLink` and then use a plain anchor to the returned
+  60 s URL, so the browser streams to disk. Smaller files still use the buffered fetch so a 422 shows as "Integrity failed".
+  For streamed files the UI shows the expected SHA-256; a mid-stream failure appears as a failed browser download.
+- Status on `main` (193e3c8): zone A has no `/auth/login` or `/files/{id}/download-link` yet (the API answers 500),
+  so Login and streamed download were verified against the mock only. Upload and search work against the real API.
+
 ## Insights: knowledge corpus (for the analyst's `search_knowledge` tool)
 
 - `services/insights/corpus/`: 16 expert-sourced chunks for brief section 5 (reliability indices and
