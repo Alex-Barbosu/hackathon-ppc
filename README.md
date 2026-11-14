@@ -81,7 +81,9 @@ curl -sk -H "$H" -X POST https://localhost/chaos/reset                          
 ```
 
 `client` network conditions apply to the slow lane, https://localhost:8443. Port 443 stays
-fast, so you can compare the two.
+fast, so you can compare the two. `db`, `s3` and `ftp` degrade the link between FileGrid and
+that storage (FTP's data connections included). Example: `{"target":"ftp","latencyMs":100}`
+makes a 1 MB document take about 1.8 s instead of 0.15 s, still stored on FTP.
 
 ### Load tests
 

@@ -11,11 +11,20 @@ export interface NetworkCondition {
   bandwidthKbps?: number;
 }
 
-export const PROXY_FOR: Record<NetTarget, string> = {
-  client: "client_slowlane",
-  db: "pg",
-  s3: "s3",
-  ftp: "ftp",
+/** vsftpd's passive data ports (infra/ftp/vsftpd.conf pasv_min_port..pasv_max_port). */
+export const FTP_PASV_PORTS: readonly number[] = Array.from({ length: 10 }, (_, i) => 30000 + i);
+
+/**
+ * Proxies a target's traffic passes through; the first one is read back for /state.
+ * FTP needs more than its control proxy: file bytes travel on separate passive data
+ * connections, so a toxic on the control channel alone slows the commands but not the
+ * transfer. Every passive port has its own proxy (infra/toxiproxy/toxiproxy.json).
+ */
+export const PROXY_FOR: Record<NetTarget, readonly [string, ...string[]]> = {
+  client: ["client_slowlane"],
+  db: ["pg"],
+  s3: ["s3"],
+  ftp: ["ftp", ...FTP_PASV_PORTS.map((p) => `ftp_pasv_${p}`)],
 };
 
 export interface Toxic {
@@ -101,17 +110,18 @@ export class ToxiproxyClient implements ToxiproxyApi {
   }
 
   async apply(c: NetworkCondition): Promise<void> {
-    const proxy = PROXY_FOR[c.target];
-    for (const t of await this.toxicsOf(proxy)) {
-      if (t.name.startsWith("fg_")) await this.call("DELETE", `/proxies/${proxy}/toxics/${t.name}`);
-    }
-    for (const t of toxicsFor(c)) await this.call("POST", `/proxies/${proxy}/toxics`, t);
+    await Promise.all(PROXY_FOR[c.target].map(async (proxy) => {
+      for (const t of await this.toxicsOf(proxy)) {
+        if (t.name.startsWith("fg_")) await this.call("DELETE", `/proxies/${proxy}/toxics/${t.name}`);
+      }
+      for (const t of toxicsFor(c)) await this.call("POST", `/proxies/${proxy}/toxics`, t);
+    }));
   }
 
   async conditions(): Promise<NetworkCondition[]> {
     const out: NetworkCondition[] = [];
     for (const target of Object.keys(PROXY_FOR) as NetTarget[]) {
-      const c = conditionFrom(target, await this.toxicsOf(PROXY_FOR[target]));
+      const c = conditionFrom(target, await this.toxicsOf(PROXY_FOR[target][0]));
       if (c) out.push(c);
     }
     return out;
