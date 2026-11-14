@@ -183,7 +183,7 @@ test("corrupt: validates the id, routes by storage, refuses unknown files and st
   for (const cmd of lookups) assert.equal(cmd[5], ID);
 });
 
-test("meter storm multiplies the simulator rate and restores it; video storms are refused", async () => {
+test("meter storm multiplies the simulator rate and restores it", async () => {
   const { app, storms, meters } = setup();
   const res = await app.inject({ method: "POST", url: "/chaos/storm", headers: { authorization: admin }, payload: { category: "meter", multiplier: 10, durationSec: 60 } });
   assert.equal(res.statusCode, 202);
@@ -191,8 +191,46 @@ test("meter storm multiplies the simulator rate and restores it; video storms ar
   assert.equal((res.json() as { storm: { category: string } }).storm.category, "meter");
   await storms.stop();
   assert.equal(meters.r.baseReadingsPerSec, 2);
-  const video = await app.inject({ method: "POST", url: "/chaos/storm", headers: { authorization: admin }, payload: { category: "video", multiplier: 10, durationSec: 60 } });
-  assert.equal(video.statusCode, 409);
+});
+
+test("video storm: tus create, 16 MB chunks, a refused chunk is resumed from the server offset", async () => {
+  const calls: { method: string; url: string; offset: string | null; len: number; auth: string | null }[] = [];
+  let stored = 0;
+  let refuseNext = true;
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const h = new Headers(init?.headers);
+    const body = init?.body as Uint8Array | undefined;
+    calls.push({ method: init?.method ?? "GET", url, offset: h.get("upload-offset"), len: body?.byteLength ?? 0, auth: h.get("authorization") });
+    if (init?.method === "POST") {
+      assert.match(h.get("upload-metadata") ?? "", new RegExp(`^category ${Buffer.from("video").toString("base64")},`));
+      return new Response(null, { status: 201, headers: { location: "/api/v1/files/tus/abc" } });
+    }
+    if (init?.method === "HEAD") return new Response(null, { status: 200, headers: { "upload-offset": String(stored) } });
+    // The second chunk is refused once, as video's full bulkhead would (503).
+    if (stored > 0 && refuseNext) { refuseNext = false; return new Response("busy", { status: 503 }); }
+    stored += body?.byteLength ?? 0;
+    return new Response(null, { status: 204, headers: { "upload-offset": String(stored) } });
+  }) as typeof fetch;
+  const { app, storms } = buildApp({
+    jwtSecret: SECRET,
+    storages: new Storages(new FakeDocker(), { flipByte: async () => 0 }),
+    toxiproxy: new FakeToxi(),
+    meters: new FakeMeters(),
+    defaultReadingsPerSec: 1,
+    apiUrl: "http://caddy:8088/api/v1/files",
+    fetchFn,
+  });
+  const res = await app.inject({ method: "POST", url: "/chaos/storm", headers: { authorization: admin }, payload: { category: "video", multiplier: 1, durationSec: 60 } });
+  assert.equal(res.statusCode, 202);
+  for (let i = 0; i < 100 && stored < 32 * 1024 * 1024; i++) await new Promise((r) => setTimeout(r, 50));
+  await storms.stop();
+  assert.equal(stored, 32 * 1024 * 1024);
+  assert.equal(calls[0]?.url, "http://caddy:8088/api/v1/files/tus");
+  const patches = calls.filter((c) => c.method === "PATCH");
+  assert.deepEqual(patches.map((p) => [p.offset, p.len]), [["0", 16 << 20], [String(16 << 20), 16 << 20], [String(16 << 20), 16 << 20]]);
+  assert.ok(calls.some((c) => c.method === "HEAD"), "resumed via HEAD after the refusal");
+  assert.ok(calls.every((c) => c.auth === admin), "acts with the caller's token");
 });
 
 test("outage storm uploads at baseline x multiplier with the caller's token", async () => {

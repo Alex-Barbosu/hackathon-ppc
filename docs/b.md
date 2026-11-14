@@ -162,7 +162,7 @@ on cue: NFR resilience (storage down, corruption, lossy links) and scalability (
 | `POST /storages/{db\|s3\|ftp}/{stop\|start}` | Docker stop (10 s grace, so PostgreSQL shuts down cleanly) / start of `postgres`, `seaweedfs` or `ftp`. |
 | `POST /network` | Toxiproxy toxics on `client` (the slow lane, :8443), `db`, `s3` or `ftp`. Latency and jitter are split over both directions, so the round trip grows by `latencyMs`. `bandwidthKbps` applies both ways. TCP proxies cannot drop single packets, so `lossPct` resets that share of connections 1 s in, which an HTTP client sees as a broken transfer it must resume. All zeros clear the target. |
 | `POST /corrupt` | Looks the file up in `files`, then flips the middle byte **in the storage itself**: `stored_blobs` (SQL), the SeaweedFS filer (`/buckets/<bucket>/<key>`, streamed, so 1 GB works with flat memory) or the FTP file on disk. |
-| `POST /storm` | `meter`: simulator rate × multiplier, restored at the end. `outage` / `document`: chaos-control uploads random files at baseline × multiplier (outage 0.5/s × 2 MB, document 0.5/s × 512 KB), open loop, at most 32 in flight, with the caller's token. `video`: 409 until tus exists (zone A P1). |
+| `POST /storm` | `meter`: simulator rate × multiplier, restored at the end. `outage` / `document`: chaos-control uploads random files at baseline × multiplier (outage 0.5/s × 2 MB, document 0.5/s × 512 KB), open loop, at most 32 in flight, with the caller's token. `video`: 32 MB videos over tus at 0.05/s × multiplier, 16 MB PATCH chunks, at most 4 in flight; a refused or cut chunk is resumed from the server's offset (HEAD), up to 20 attempts. |
 | `POST /meters` | Simulator base rate. Ends a running meter storm without restoring the old rate. |
 | `POST /reset` | Ends the storm, removes every toxic, starts all three storages, meters back to `METER_READINGS_PER_SEC` with profile `normal`. |
 
@@ -621,6 +621,31 @@ Nothing to fix. Full check output:
 `filegrid_queue_depth` (#28), `filegrid_storage_up`, `filegrid_circuit_open` (#22, #33) and
 Postgres + S3 through Toxiproxy (#33) are on main, so those requests below are done. FTP
 through Toxiproxy still needs ten passive-port proxies on zone B's side (#33 explains it).
+
+## Video storms (branch `zone-b/video-storm`)
+
+`POST /chaos/storm {"category":"video"}` answered 409 until tus existed. Now chaos-control
+uploads 32 MB drone videos through the real path: tus creation, 16 MB PATCH chunks, video's
+bulkhead (2 workers). A refused chunk (503 from a full bulkhead) or a cut one is resumed from
+the server's offset after 2 s, like a field team's client. Each video gets its own random
+first bytes, so no two share a SHA-256. 32 MB rather than 1 GB keeps ×10 at about 15 MB/s on a
+laptop; `make b-load S=video-lossy VIDEO_MB=1100` remains the > 1 GB proof.
+
+Live, video ×10 for 60 s at 10 meter readings/s:
+
+| t | video in | meter p95 | video queue | videos stored |
+| --- | --- | --- | --- | --- |
+| +10 s | 7.5 MB/s | 4.0 ms | 0 | 5 |
+| +30 s | 14.9 MB/s | 3.6 ms | 0 | 15 |
+| +50 s | 14.9 MB/s | 11.3 ms | 0 | 25 |
+| +60 s | 14.9 MB/s | 4.1 ms | 0 | 30 |
+
+**30 of 30 stored** (960 MB), 0 errors, 0 skipped. Meter p95 stayed between 3.6 and 11.4 ms,
+far below the 0.5 s alert. One storm video downloaded byte-identical (33,554,432 bytes,
+`X-Content-SHA256` = SHA-256 of the bytes) and `verify` → `ok: true`. Each run adds about
+1 GB to SeaweedFS; `make reset` clears it.
+Unit test: tus create to `…/files/tus`, chunks at offsets 0 and 16 MiB, the refused chunk
+resent at the offset HEAD reported, caller's token on every call.
 
 ## Healthchecks on every service (branch `zone-b/healthchecks`)
 
