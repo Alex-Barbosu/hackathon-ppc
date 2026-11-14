@@ -86,6 +86,10 @@ services:
       - "443:443"
     environment:
       FILEGRID_HOST: ${FILEGRID_HOST:-localhost}
+      # Read by the Caddyfile's `tracing` directive (OTLP gRPC), so traces start at the gateway.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_SERVICE_NAME: caddy
     volumes:
       # The directory, not the file: a single-file bind mount pins the inode, so a
       # `git switch` or editor save would leave Caddy on the old Caddyfile.
@@ -215,6 +219,10 @@ services:
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets a viewer open Explore, where exemplar and trace links land. Viewers still cannot
+      # save dashboards or change datasources; the data behind them is metrics, traces and
+      # logs that carry no personal data (root CLAUDE.md rule 8).
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_FEATURE_TOGGLES_ENABLE: traceToLogs
       # https://<host>/grafana/ opens straight on FileGrid Overview.
