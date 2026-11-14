@@ -110,7 +110,12 @@ export interface paths {
         get: operations["getFile"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a file and its stored bytes (admin only, audited)
+         * @description Used by Storage Lab to remove its benchmark samples. Removes the object from
+         *     whichever storage holds it, then the files row. Documents get an audit_log entry.
+         */
+        delete: operations["deleteFile"];
         options?: never;
         head?: never;
         patch?: never;
@@ -513,6 +518,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/insights/storage-lab/runs/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The most recent run, so the page shows results without knowing a run id */
+        get: operations["getLatestStorageLabRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/insights/storage-lab/runs/{runId}": {
         parameters: {
             query?: never;
@@ -852,15 +874,47 @@ export interface components {
             /** @example 412 */
             totalMinutes?: number;
         };
+        StorageLabLatency: {
+            p50Ms: number;
+            p95Ms: number;
+            p99Ms: number;
+        };
         StorageLabCell: {
             category: components["schemas"]["Category"];
             storage: components["schemas"]["Storage"];
+            /** @enum {string} */
+            status: "pending" | "running" | "done";
             samples: number;
-            p50Ms?: number;
-            p95Ms?: number;
-            p99Ms?: number;
+            completed: number;
+            sizeBytes: number;
+            /** @enum {string} */
+            method: "multipart" | "tus";
+            write?: components["schemas"]["StorageLabLatency"];
+            read?: components["schemas"]["StorageLabLatency"];
+            /** @description Write throughput */
             throughputMBps?: number;
+            readMBps?: number;
             errorRate?: number;
+            errors: number;
+            /** @description Error codes only (e.g. TOO_LARGE), never file names or contents */
+            errorSamples: string[];
+            /** @description Every downloaded sample matched its SHA-256; null until a sample was read back */
+            integrityOk: boolean | null;
+            /**
+             * @deprecated
+             * @description Use write.p50Ms
+             */
+            p50Ms?: number;
+            /**
+             * @deprecated
+             * @description Use write.p95Ms
+             */
+            p95Ms?: number;
+            /**
+             * @deprecated
+             * @description Use write.p99Ms
+             */
+            p99Ms?: number;
         };
         StorageLabRun: {
             /** Format: uuid */
@@ -872,10 +926,21 @@ export interface components {
             /** Format: date-time */
             finishedAt?: string;
             cells?: components["schemas"]["StorageLabCell"][];
+            samplesPerCell?: number;
+            error?: string;
             recommendation?: {
-                category?: components["schemas"]["Category"];
-                storage?: components["schemas"]["Storage"];
-                reason?: string;
+                category: components["schemas"]["Category"];
+                storage: components["schemas"]["Storage"];
+                /** @description One-line summary */
+                reason: string;
+                reasons?: string[];
+                /** @description The numbers the reasons cite, shown as source chips */
+                evidence?: {
+                    label: string;
+                    value: string;
+                }[];
+                /** @description false for meter (simulator-driven, not benchmarked) */
+                benchmarked?: boolean;
             }[];
         };
         Error: {
@@ -1120,6 +1185,28 @@ export interface operations {
                     "application/json": components["schemas"]["FileMeta"];
                 };
             };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["FileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
@@ -1677,6 +1764,27 @@ export interface operations {
                     "application/json": components["schemas"]["StorageLabRun"];
                 };
             };
+        };
+    };
+    getLatestStorageLabRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageLabRun"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     getStorageLabRun: {

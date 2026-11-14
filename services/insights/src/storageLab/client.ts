@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { mintAdminToken } from "./auth.js";
+import { codeFromResponse, LabError, type Phase } from "./errors.js";
 import { multipart, randomPayload } from "./payload.js";
 import type { Category, Storage } from "./types.js";
 
@@ -14,17 +15,9 @@ export class ApiClient {
     return { Authorization: `Bearer ${mintAdminToken(this.secret)}`, ...extra };
   }
 
-  private async fail(res: Response, what: string): Promise<never> {
-    // Error bodies carry a code and message only (zone A never echoes file content).
-    const raw = (await res.text().catch(() => "")).slice(0, 400);
-    let detail = "";
-    try {
-      const j = JSON.parse(raw) as { code?: string; message?: string };
-      detail = [j.code, j.message].filter(Boolean).join(": ");
-    } catch {
-      detail = raw.slice(0, 120);
-    }
-    throw new Error(`${what}: HTTP ${res.status}${detail ? ` ${detail}` : ""}`);
+  private async fail(res: Response, phase: Phase): Promise<never> {
+    // Only the code is kept (see errors.ts); the response text is read and dropped.
+    throw new LabError(codeFromResponse(phase, res.status, (await res.text().catch(() => "")).slice(0, 400)));
   }
 
   /** Multipart upload with the policy bypassed, so the byte path of one storage is measured. */
@@ -48,7 +41,7 @@ export class ApiClient {
       method: "POST",
       headers: this.headers({ "Tus-Resumable": "1.0.0", "Upload-Length": String(size), "Upload-Metadata": meta }),
     });
-    if (created.status !== 201) await this.fail(created, "tus create");
+    if (created.status !== 201) await this.fail(created, "upload");
     const location = created.headers.get("location") ?? "";
     const url = location.startsWith("http") ? location : `${this.base}${location}`;
     const hash = createHash("sha256");
@@ -61,13 +54,13 @@ export class ApiClient {
         headers: this.headers({ "Tus-Resumable": "1.0.0", "Upload-Offset": String(offset), "content-type": "application/offset+octet-stream" }),
         body: part,
       });
-      if (res.status !== 204) await this.fail(res, "tus patch");
+      if (res.status !== 204) await this.fail(res, "upload");
       offset += part.length;
       fileId = res.headers.get("x-filegrid-file-id") ?? fileId;
     }
-    if (!fileId) throw new Error("tus finished without a file id");
+    if (!fileId) throw new LabError("upload:INTERNAL");
     const meta2 = await fetch(`${this.base}/api/v1/files/${fileId}`, { headers: this.headers() });
-    if (!meta2.ok) await this.fail(meta2, "metadata");
+    if (!meta2.ok) await this.fail(meta2, "upload");
     const m = (await meta2.json()) as { storage?: string; sha256?: string; receipt?: Receipt };
     return { receipt: { id: fileId, storage: m.storage ?? "?", sha256: m.sha256 ?? "" }, sha256: hash.digest("hex") };
   }

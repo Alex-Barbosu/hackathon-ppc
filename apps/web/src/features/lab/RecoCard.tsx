@@ -1,4 +1,5 @@
-import { STORAGE_NAME, type LabRecommendation, type Storage } from "./types";
+import type { LabRecommendation, Storage } from "../../lib/domain";
+import { STORAGE_NAME } from "./constants";
 
 const LABEL: Record<string, string> = { meter: "Meter readings", outage: "Outage records", document: "Documents", video: "Drone video" };
 
@@ -12,9 +13,9 @@ export function RecoCard({ rec, current }: { rec: LabRecommendation; current: St
         {current === undefined ? "Current policy unknown" : changes ? `Change from ${STORAGE_NAME[current]}` : "Matches the current policy"}
       </p>
       <ul className="mt-4 space-y-2 text-sm">
-        {rec.reasons.map((r) => <li key={r} className="border-l-2 border-accent/40 pl-3">{r}</li>)}
+        {(rec.reasons ?? [rec.reason]).map((r) => <li key={r} className="border-l-2 border-accent/40 pl-3">{r}</li>)}
       </ul>
-      {rec.evidence.length > 0 && (
+      {rec.evidence && rec.evidence.length > 0 && (
         <ul className="mt-4 flex flex-wrap gap-2" aria-label="Numbers used">
           {rec.evidence.map((e) => (
             <li key={e.label} className="rounded-full border border-line px-3 py-1 text-[13px] tabular-nums">

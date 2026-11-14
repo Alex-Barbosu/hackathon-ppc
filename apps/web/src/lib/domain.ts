@@ -20,3 +20,8 @@ export const REGIONS: ReadonlyArray<{ id: Region; label: string }> = [
   { id: "banat", label: "Banat" },
   { id: "dobrogea", label: "Dobrogea" },
 ];
+
+export type Storage = components["schemas"]["Storage"];
+export type LabRun = components["schemas"]["StorageLabRun"];
+export type LabCell = components["schemas"]["StorageLabCell"];
+export type LabRecommendation = NonNullable<LabRun["recommendation"]>[number];

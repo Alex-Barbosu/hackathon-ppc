@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, authHeaders } from "../../api/client";
-import type { Category, LabRun, Storage } from "./types";
+import { api } from "../../api/client";
+import type { Category, LabRun, Storage } from "../../lib/domain";
 
 const KEY = ["storage-lab", "latest"];
 
@@ -10,10 +10,10 @@ export function useLatestRun() {
     // Fast while a run is live so cells fill in as they finish; slow otherwise.
     refetchInterval: (q) => (q.state.data?.status === "running" ? 2000 : 15000),
     queryFn: async ({ signal }) => {
-      const res = await fetch("/insights/storage-lab/runs/latest", { signal, headers: authHeaders() });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`Storage Lab answered ${res.status}`);
-      return (await res.json()) as LabRun;
+      const { data, response } = await api.GET("/insights/storage-lab/runs/latest", { signal });
+      if (response.status === 404) return null;
+      if (!data) throw new Error(`Storage Lab answered ${response.status}`);
+      return data;
     },
   });
 }
@@ -22,14 +22,11 @@ export function useStartRun() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (samplesPerCell: number): Promise<LabRun> => {
-      const res = await fetch("/insights/storage-lab/runs", {
-        method: "POST",
-        headers: { ...authHeaders(), "content-type": "application/json" },
-        body: JSON.stringify({ samplesPerCell }),
-      });
-      const body = (await res.json()) as LabRun & { message?: string };
-      if (!res.ok) throw new Error(body.message ?? `Could not start (${res.status})`);
-      return body;
+      const res = await api.POST("/insights/storage-lab/runs", { body: { samplesPerCell } });
+      if (res.data) return res.data;
+      // The contract lists only the 202; 403 and 409 also come back with { code, message }.
+      const failed = res as unknown as { error?: { message?: string }; response: Response };
+      throw new Error(failed.error?.message ?? `Could not start (${failed.response.status})`);
     },
     onSuccess: (run) => qc.setQueryData(KEY, run),
   });

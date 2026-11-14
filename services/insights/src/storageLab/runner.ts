@@ -1,4 +1,5 @@
 import { ApiClient } from "./client.js";
+import { asLabError, LabError, recordError } from "./errors.js";
 import { recommend } from "./recommend.js";
 import { latency, round } from "./stats.js";
 import type { RunStore } from "./store.js";
@@ -32,23 +33,22 @@ async function runCell(api: ApiClient, cell: Cell, save: () => Promise<void>): P
   for (let i = 0; i < cell.samples && consecutive < MAX_CONSECUTIVE_ERRORS; i++) {
     try {
       const t0 = performance.now();
-      const up = cell.method === "tus" ? await api.uploadTus(cell.category, cell.sizeBytes) : await api.uploadForced(cell.category, cell.storage, cell.sizeBytes);
+      const up = await (cell.method === "tus" ? api.uploadTus(cell.category, cell.sizeBytes) : api.uploadForced(cell.category, cell.storage, cell.sizeBytes)).catch((e: unknown) => { throw asLabError(e, "upload"); });
       const wMs = performance.now() - t0;
       // A silent fallback would credit this storage with another one's speed.
-      if (up.receipt.storage !== cell.storage) throw new Error(`stored on ${up.receipt.storage}, not ${cell.storage}`);
+      if (up.receipt.storage !== cell.storage) throw new LabError("upload:FALLBACK");
+      if (up.receipt.sha256 && up.receipt.sha256 !== up.sha256) { integrity = false; throw new LabError("upload:INTEGRITY_FAILED"); }
       const t1 = performance.now();
-      const dl = await api.downloadHash(up.receipt.id);
+      const dl = await api.downloadHash(up.receipt.id).catch((e: unknown) => { throw asLabError(e, "download"); });
       const rMs = performance.now() - t1;
-      if (dl.sha256 !== up.sha256 || (up.receipt.sha256 && up.receipt.sha256 !== up.sha256)) {
-        integrity = false;
-        throw new Error("SHA-256 mismatch after download");
-      }
+      if (dl.sha256 !== up.sha256) { integrity = false; throw new LabError("download:INTEGRITY_FAILED"); }
       writes.push(wMs); reads.push(rMs); writeSec += wMs / 1000; readSec += rMs / 1000;
       consecutive = 0;
     } catch (e) {
       consecutive++;
-      cell.errors++;
-      if (cell.errorSamples.length < 2) cell.errorSamples.push(e instanceof Error ? e.message : "unknown error");
+      // A server-reported INTEGRITY_FAILED on download is also an integrity failure.
+      if (e instanceof LabError && e.code.endsWith(":INTEGRITY_FAILED")) integrity = false;
+      recordError(cell, e instanceof LabError ? e.code : "upload:NETWORK");
     }
     cell.completed++;
     if (writes.length) {

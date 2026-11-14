@@ -2,15 +2,15 @@ import { useState } from "react";
 import { FIELD, PrimaryButton } from "../../components/ui";
 import { useSession } from "../../state/session";
 import { useStartRun } from "./useLab";
-import type { LabRun } from "./types";
+import type { LabRun } from "../../lib/domain";
 
 export function RunBar({ run }: { run: LabRun | null | undefined }) {
   const admin = useSession((s) => s.session?.role === "admin");
   const start = useStartRun();
   const [n, setN] = useState(5);
   const running = run?.status === "running";
-  const done = run ? run.cells.reduce((a, c) => a + c.completed, 0) : 0;
-  const total = run ? run.cells.reduce((a, c) => a + c.samples, 0) : 0;
+  const done = run ? (run.cells ?? []).reduce((a, c) => a + c.completed, 0) : 0;
+  const total = run ? (run.cells ?? []).reduce((a, c) => a + c.samples, 0) : 0;
   return (
     <div className="flex flex-wrap items-end gap-4">
       <label className="text-[13px] text-muted">

@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import { fmtMbps, fmtMs } from "./format";
-import { STORAGE_NAME, type LabCell } from "./types";
+import type { LabCell } from "../../lib/domain";
+import { STORAGE_NAME } from "./constants";
+import { errorText, rejectedByDesign } from "./errorText";
 
 function Pill({ children, tone }: { children: string; tone: "accent" | "muted" }) {
   return (
@@ -12,12 +14,16 @@ function Pill({ children, tone }: { children: string; tone: "accent" | "muted" }
 
 function Body({ cell }: { cell: LabCell }) {
   if (cell.status === "pending") return <p className="text-sm text-muted">Waiting for its turn</p>;
-  const failed = cell.errors > 0 && !cell.write;
-  if (failed) {
+  if (cell.errors > 0 && !cell.write) {
+    const calm = rejectedByDesign(cell);
     return (
       <div>
-        <p className="text-sm font-medium text-bad">Failed: {cell.errors} of {cell.completed}</p>
-        <p className="mt-1 text-[13px] break-words text-muted">{cell.errorSamples[0] ?? "Storage refused the file"}</p>
+        <p className={`text-sm font-medium ${calm ? "text-ink" : "text-bad"}`}>
+          {calm ? "Rejected by design" : `Failed: ${cell.errors} of ${cell.completed}`}
+        </p>
+        <ul className="mt-1 space-y-1 text-[13px] text-muted">
+          {(cell.errorSamples.length ? [...new Set(cell.errorSamples)] : ["Storage refused the file"]).map((s) => <li key={s}>{errorText(s, cell)}</li>)}
+        </ul>
       </div>
     );
   }
