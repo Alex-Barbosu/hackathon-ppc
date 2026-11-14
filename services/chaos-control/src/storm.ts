@@ -26,6 +26,17 @@ export const UPLOAD_BASELINE: Record<"outage" | "document", { perSec: number; by
   document: { perSec: 0.5, bytes: 512 * 1024 },
 };
 
+/**
+ * Drone videos are few and huge (brief: 100 MB - 1 GB+). A storm uses 32 MB videos so ×10
+ * (0.5 videos/s, ~16 MB/s) stays inside a laptop's disk and network budget, while still
+ * going through the real path: tus creation, 16 MB PATCH chunks, video's bulkhead.
+ */
+export const VIDEO_BASELINE = { perSec: 0.05, bytes: 32 * 1024 * 1024, chunkBytes: 16 * 1024 * 1024 };
+/** Each video in flight holds one 16 MB chunk; 4 caps chaos-control at ~64 MB for it. */
+const MAX_VIDEOS_IN_FLIGHT = 4;
+/** A refused or cut chunk is resumed from the server's offset, as a field team's client would. */
+const MAX_CHUNK_ATTEMPTS = 20;
+
 const MAX_IN_FLIGHT = 32;
 const REGIONS = ["muntenia", "banat", "dobrogea"] as const;
 
@@ -64,16 +75,15 @@ export class Storms {
   }
 
   async start(req: StormRequest, authorization: string | undefined): Promise<StormState> {
-    if (req.category === "video") {
-      throw new ChaosError(409, "UNSUPPORTED", "video storms need the tus upload path (zone A, P1); use meter, outage or document");
-    }
     await this.stop();
     const state: StormState = {
       category: req.category,
       multiplier: req.multiplier,
       endsAt: new Date(Date.now() + req.durationSec * 1000).toISOString(),
     };
-    const run = req.category === "meter" ? await this.meterStorm(req) : this.uploadStorm(req.category, req.multiplier, authorization);
+    const run = req.category === "meter" ? await this.meterStorm(req)
+      : req.category === "video" ? this.videoStorm(req.multiplier, authorization)
+      : this.uploadStorm(req.category, req.multiplier, authorization);
     const timer = setTimeout(() => {
       if (this.current?.state === state) void this.stop();
     }, req.durationSec * 1000);
@@ -102,10 +112,10 @@ export class Storms {
     const fetchFn = this.deps.fetchFn ?? fetch;
     let inFlight = 0;
     let sent = 0;
-    const startedAt = performance.now();
     const fire = (): void => {
       // Open loop: arrivals do not wait for the API, so a slow API builds a real queue.
       // In-flight is capped so chaos-control itself cannot run out of memory.
+      sent++;
       if (inFlight >= MAX_IN_FLIGHT) {
         this.deps.uploads.inc({ category, result: "skipped" });
         return;
@@ -130,6 +140,13 @@ export class Storms {
         .catch(() => this.deps.uploads.inc({ category, result: "error" }))
         .finally(() => inFlight--);
     };
+    return this.openLoop(rate, fire);
+  }
+
+  /** Calls fire() at `rate` per second until the returned stop function runs. */
+  private openLoop(rate: number, fire: () => void): (restore: boolean) => Promise<void> {
+    let sent = 0;
+    const startedAt = performance.now();
     const timer = setInterval(() => {
       const due = Math.floor((rate * (performance.now() - startedAt)) / 1000) - sent;
       for (let i = 0; i < due; i++) {
@@ -138,5 +155,84 @@ export class Storms {
       }
     }, 50);
     return async () => clearInterval(timer);
+  }
+
+  private videoStorm(multiplier: number, authorization: string | undefined): (restore: boolean) => Promise<void> {
+    const { perSec, bytes, chunkBytes } = VIDEO_BASELINE;
+    const fetchFn = this.deps.fetchFn ?? fetch;
+    const tusUrl = `${this.deps.apiUrl.replace(/\/$/, "")}/tus`;
+    const auth: Record<string, string> = authorization ? { authorization } : {};
+    // One random buffer for every video; each video gets its own random first bytes, so
+    // no two have the same content (and the same SHA-256) without 32 MB of fresh random each.
+    const shared = randomBytes(bytes);
+    let started = 0;
+    let inFlight = 0;
+    let stopped = false;
+    const b64 = (s: string): string => Buffer.from(s).toString("base64");
+
+    const upload = async (n: number): Promise<boolean> => {
+      const created = await fetchFn(tusUrl, {
+        method: "POST",
+        headers: {
+          ...auth,
+          "Tus-Resumable": "1.0.0",
+          "Upload-Length": String(bytes),
+          "Upload-Metadata": `category ${b64("video")},filename ${b64(`storm-video-${n}.mp4`)},region ${b64(REGIONS[n % REGIONS.length] ?? "muntenia")}`,
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
+      await created.arrayBuffer();
+      const location = created.headers.get("location");
+      if (created.status !== 201 || !location) return false;
+      const url = new URL(location, tusUrl).toString();
+      let offset = 0;
+      let attempts = 0;
+      while (offset < bytes && !stopped) {
+        if (++attempts > MAX_CHUNK_ATTEMPTS) return false;
+        const end = Math.min(bytes, offset + chunkBytes);
+        let chunk = shared.subarray(offset, end);
+        if (offset === 0) {
+          chunk = Buffer.from(chunk);
+          randomBytes(16).copy(chunk, 0);
+        }
+        const res = await fetchFn(url, {
+          method: "PATCH",
+          headers: { ...auth, "Tus-Resumable": "1.0.0", "Upload-Offset": String(offset), "Content-Type": "application/offset+octet-stream" },
+          body: chunk,
+          signal: AbortSignal.timeout(120_000),
+        }).catch(() => undefined);
+        if (res) await res.arrayBuffer();
+        if (res?.status === 204) {
+          offset = Number(res.headers.get("upload-offset") ?? end);
+          continue;
+        }
+        // Refused (video's bulkhead is full: 503) or cut: wait, then resume where the
+        // server says it is, like a field team's tus client. Nothing is sent twice.
+        await new Promise((r) => setTimeout(r, 2000));
+        const head = await fetchFn(url, { method: "HEAD", headers: { ...auth, "Tus-Resumable": "1.0.0" }, signal: AbortSignal.timeout(30_000) }).catch(() => undefined);
+        if (head?.status === 200) offset = Number(head.headers.get("upload-offset") ?? offset);
+      }
+      return offset >= bytes;
+    };
+
+    const fire = (): void => {
+      if (inFlight >= MAX_VIDEOS_IN_FLIGHT) {
+        this.deps.uploads.inc({ category: "video", result: "skipped" });
+        return;
+      }
+      inFlight++;
+      const n = started++;
+      upload(n)
+        .then((ok) => this.deps.uploads.inc({ category: "video", result: ok ? "ok" : "error" }))
+        .catch(() => this.deps.uploads.inc({ category: "video", result: "error" }))
+        .finally(() => inFlight--);
+    };
+    const stopLoop = this.openLoop(perSec * multiplier, fire);
+    // Kick off one at once: at 0.5/s the first would otherwise start 2 s in.
+    fire();
+    return async (restore) => {
+      stopped = true;
+      await stopLoop(restore);
+    };
   }
 }
