@@ -94,12 +94,16 @@ public class AuthFilter extends OncePerRequestFilter {
                 }
             }
         }
-        // A download link is only honoured on its own file's content route.
+        // A download link is only honoured on its own file's content route. The parameter is read
+        // only here: getParameter() on an upload makes Tomcat parse the whole body, and that must
+        // not happen before the caller has been authenticated.
         String fileId = AccessRules.contentFileId(path);
-        String linkToken = request.getParameter("token");
-        if (fileId != null && "GET".equals(request.getMethod()) && linkToken != null) {
-            return downloadTokens.verify(linkToken, UUID.fromString(fileId))
-                    .map(user -> new AuthPrincipal(user, Role.DOWNLOAD_LINK));
+        if (fileId != null && "GET".equals(request.getMethod())) {
+            String linkToken = request.getParameter("token");
+            if (linkToken != null) {
+                return downloadTokens.verify(linkToken, UUID.fromString(fileId))
+                        .map(user -> new AuthPrincipal(user, Role.DOWNLOAD_LINK));
+            }
         }
         return Optional.empty();
     }

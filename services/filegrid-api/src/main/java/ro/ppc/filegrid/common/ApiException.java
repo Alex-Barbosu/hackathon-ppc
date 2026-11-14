@@ -30,6 +30,11 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.FORBIDDEN, ApiError.Code.FORBIDDEN, message);
     }
 
+    /** 409. The Error schema has no CONFLICT code, so it carries BAD_REQUEST. */
+    public static ApiException conflict(String message) {
+        return new ApiException(HttpStatus.CONFLICT, ApiError.Code.BAD_REQUEST, message);
+    }
+
     public static ApiException notFound(String message) {
         return new ApiException(HttpStatus.NOT_FOUND, ApiError.Code.NOT_FOUND, message);
     }

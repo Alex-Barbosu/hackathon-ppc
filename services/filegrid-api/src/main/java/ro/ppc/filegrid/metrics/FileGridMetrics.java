@@ -67,6 +67,14 @@ public class FileGridMetrics {
                 .increment();
     }
 
+    /** A tus upload that came back after an interruption (the client asked where to resume). */
+    public void recordUploadResume(Category category) {
+        Counter.builder("filegrid.upload.resumes")
+                .tags("category", category.slug())
+                .register(registry)
+                .increment();
+    }
+
     /** SHA-256 mismatch detected on read or verify. */
     public void recordIntegrityFailure(Category category, Storage storage) {
         Counter.builder("filegrid.integrity.failures")

@@ -40,7 +40,7 @@ public class S3Storage implements StorageAdapter {
         return Storage.S3;
     }
 
-    static String bucketFor(Category category) {
+    public static String bucketFor(Category category) {
         return "filegrid-" + category.slug();
     }
 
