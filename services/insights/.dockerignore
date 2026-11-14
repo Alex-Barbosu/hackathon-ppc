@@ -1,3 +1,5 @@
 node_modules
 dist
 *.md
+# The analyst reads corpus/*.md at runtime, so they must reach the image.
+!corpus/**/*.md
