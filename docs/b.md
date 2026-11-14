@@ -379,17 +379,20 @@ STATE (all merged to main)
 - chaos-control (all /chaos routes, admin JWT, Docker socket allowlist). Get a token with `make b-token`.
 - k6 scenarios: `make b-load S=baseline|storm-outage|video-lossy`.
 - Caddy load-balances over API replicas (`dynamic a`, no passive health, internal :8088 listener, --watch).
-- `make demo`, `make demo-scale`, `make fresh-test` (last run: 43 passed, 0 failed), `scripts/wait-ready.sh` (make up waits until FileGrid reaches all three storages), and `make up` updates stale .env defaults.
+- `make demo` (step 3 starts S3 again and waits with a countdown until FileGrid sees it), `make demo-scale`, `make fresh-test` (last run: 43 passed, 0 failed), `scripts/wait-ready.sh`, and `make up` updates stale .env defaults.
+- Traces start at Caddy (`tracing` on /api): gateway → API → `policy.route` → `storage.write`, logs in Loki by trace_id, exemplar dots on latency charts, Explore open to anonymous viewers. `make b-trace` proves it and prints a Grafana link.
+- `make b-alert-check`: StorageDown, MeterReadingLossRisk and IntegrityFailure each fire, reach insights and resolve (~12 min).
+- Dashboards: FileGrid Overview, Meters, Storages, Storm, all from the same generator.
+- Healthchecks on every service except otel-collector (scratch image; Prometheus watches it).
+- Toxiproxy on every storage path, FTP's passive ports included: /chaos/network on db, s3 and ftp slows real transfers. Use latencyMs 100 on ftp in a demo (400 ms makes a document time out and fall back to s3).
+- Storms for every category, video included (32 MB videos over tus): PR #53, check it merged.
 
 REMAINING BACKLOG (infra/CLAUDE.md), in order
-1. Traces: verify that clicking a slow point on a latency panel opens its trace in Tempo (exemplars -> Tempo -> logs in Loki). Nothing has proven this yet. Fix infra/otel and the Grafana datasources if it does not work. Zone A's OTLP export is their side.
-2. Separate dashboards Meters, Storages and Storm (the Overview has these as rows). Use the existing generator and keep panel names matching contracts/metrics.md.
-3. Healthchecks for loki, tempo, mock-api, otel-collector, alertmanager and toxiproxy (backlog item 1 says healthchecks on everything). `make up --wait` must stay green.
-4. Toxiproxy on the storage paths: filegrid-api connects to postgres/seaweedfs/ftp directly, so /chaos/network on db/s3/ftp has no effect. Zone A merged a "slow-lane-proof" PR (#37): read it first, it may already cover part of this. Anything in zone A's compose file is their change: write the request in docs/b.md for me to raise with CalinCodes (PG_URL=jdbc:postgresql://toxiproxy:15432/filegrid, S3_ENDPOINT=http://toxiproxy:18333).
-5. Optional: Discord/Slack webhook receiver in Alertmanager from .env. A recorded backup of the demo. `make up-k8s` (k3d) only if everything else is green.
-6. Keep the README "Prove it" table current as A and C ship features. It is the demo script. Re-run `make fresh-test` and `make demo` against main before the deadline (Sun 15 Nov ~12:00 Bucharest).
+1. Keep the README "Prove it" table current as A and C ship features. It is the demo script. Re-run `make fresh-test` and `make demo` against main before the deadline (Sun 15 Nov ~12:00 Bucharest).
+2. Optional: Discord/Slack webhook receiver in Alertmanager from .env. A recorded backup of the demo. `make up-k8s` (k3d) only if everything else is green.
+3. Not verified anywhere yet: a Mac / arm64 run; clicking an exemplar dot in a real browser (the data behind it is checked).
 
-OPEN REQUESTS FOR OTHER ZONES (docs/b.md has the details): contract metrics for DocumentProtectionFailure and VideoTransferStalling (filegrid_unencrypted_writes_total, filegrid_audit_chain_failures_total, filegrid_upload_stalled); the JWT claims line for the OpenAPI security scheme; filegrid_queue_depth (zone A's bulkheads, not built; the Storm row shows requests in progress until it exists); meter_intervals never filled (zone C needs it).
+OPEN REQUESTS FOR OTHER ZONES (docs/b.md has the details): contract metrics for DocumentProtectionFailure and VideoTransferStalling (filegrid_unencrypted_writes_total, filegrid_audit_chain_failures_total, filegrid_upload_stalled: still not in contracts/metrics.md and not emitted); the JWT claims line for the OpenAPI security scheme (not added). Done since: filegrid_queue_depth, storage_up, circuit_open, meter_intervals, Postgres/S3 through Toxiproxy.
 
 GOTCHAS I HIT
 - Docker Hub rate-limits anonymous pulls (100 per 6 h). If `make up` fails with "429 Too Many Requests": `docker login`, or `docker pull mirror.gcr.io/library/<image> && docker tag mirror.gcr.io/library/<image> <image>` for each base image (maven:3.9-eclipse-temurin-21, eclipse-temurin:21-jre-alpine, nginx:1.27-alpine, debian:bookworm-slim, node:22-alpine).

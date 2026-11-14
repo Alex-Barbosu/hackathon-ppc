@@ -98,18 +98,18 @@ server on 80/443) is the usual cause. `make reset && make up` starts over from s
 ## Prove it
 
 Each requirement, and the command or Grafana panel that proves it. "Overview" is the
-dashboard at https://localhost/grafana. Rows marked *pending* name the zone delivering them.
+dashboard at https://localhost/grafana. Each row was run on the live stack; the command is the proof.
 
 ### Gating requirements
 
 | # | Requirement | Proof | Status |
 | --- | --- | --- | --- |
-| 1 | Store and retrieve all four categories | Upload and download one file per category in the web app | pending (A, C) |
-| 2 | FTP, S3 and a database, each a separate service | `docker compose ps postgres seaweedfs ftp` shows three containers. With the default policy, a meter reading goes to `db`, an outage file to `s3`, a document to `ftp` (receipt field `storage`); Overview → *Every category on every storage* shows each | ✅ (video pending, A) |
-| 3 | Policy configurable without code changes | Edit `config/policy.yaml` or `PUT /api/v1/policy`; next upload lands in the new storage | pending (A) |
-| 4 | Retrieved file byte-identical, provably | `sha256sum` of the download equals the receipt's `sha256` and header `X-Content-SHA256`; `POST /api/v1/files/{id}/verify` returns `ok: true` | ✅ outage, document (video pending, A) |
+| 1 | Store and retrieve all four categories | `make fresh-test` stores and downloads an outage record, a document and a video (tus) byte-identical, and counts meter readings stored; in the web app: *Upload*, then *Library* → download | ✅ |
+| 2 | FTP, S3 and a database, each a separate service | `docker compose ps postgres seaweedfs ftp` shows three containers. With the default policy, a meter reading goes to `db`, an outage file to `s3`, a document to `ftp` (receipt field `storage`); Overview → *Every category on every storage* shows each; a video goes to `s3` | ✅ |
+| 3 | Policy configurable without code changes | `PUT /api/v1/policy` (admin) with outage `primary: db`: the next outage upload's receipt says `db`, no restart; put the old policy back and the next says `s3`. Also *Storage Lab → Apply policy* in the web app, or edit `config/policy.yaml` | ✅ |
+| 4 | Retrieved file byte-identical, provably | `sha256sum` of the download equals the receipt's `sha256` and header `X-Content-SHA256`; `POST /api/v1/files/{id}/verify` returns `ok: true` (checked for outage, document and a 32 MB video) | ✅ |
 | 5 | One command on a clean machine | `make fresh-test`: fresh clone → `make up` → 43 checks (routes, login, every category byte-identical, closed ports, alerts quiet), about 40 s with images cached | ✅ |
-| 6 | UI to upload, search, download | https://localhost | pending (C) |
+| 6 | UI to upload, search, download | https://localhost → *Upload* (outage, document; video resumable over tus), *Library* (search by category, text, region, dates; download) | ✅ (zone C; not clicked by zone B's agent) |
 | 7 | Meters send continuously, configurable volume | Overview → *Smart meters*: "sent" follows the dashed "configured rate"; `make b-rate R=20` or `make b-profile P=peak` (10x) shows within 10 s | ✅ |
 | 8 | Everything in Git | `git status` clean after `make up` (`.env` is generated and ignored) | ✅ |
 
@@ -117,7 +117,7 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 
 | Area | Requirement | Proof | Status |
 | --- | --- | --- | --- |
-| Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *How long saves and downloads take* and *How much work, and how much of it fails* rows (matrix table + time series) | dashboard ✅, data pending (A) |
+| Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *How long saves and downloads take* and *How much work, and how much of it fails* rows (matrix table + time series); per storage on **FileGrid Storages** | ✅ |
 | Observability | One operation traceable request → storage | `make b-trace`: uploads one outage record and checks its trace in Tempo, `caddy /api` → `http post /api/v1/files` → `policy.route` → `storage.write`, plus its log line in Loki; it prints a Grafana link to that trace. Browse all such traces in [Grafana Explore → Tempo](https://localhost/grafana/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7Bresource.service.name%3D%5C%22caddy%5C%22%7D%20%26%26%20%7Bname%3D%5C%22storage.write%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-1h%22%2C%22to%22%3A%22now%22%7D%7D%7D). On Overview's p50/p95/p99 charts, a dot is one sampled request: click it → *Query with Tempo* | ✅ |
 | Observability | Alert when a business guarantee is at risk | `make b-alert-check` (about 12 min): stops S3 (`StorageDown`), stops the database (`MeterReadingLossRisk`), corrupts a document (`IntegrityFailure`); each fires, reaches the narrator, clears and sends a resolved notice. Last run: firing after 42 s, 70 s and 9 s; delivered about 10 s later. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ |
 | Scalability | 10x spike in one category does not degrade others | `make b-load S=storm-outage` (outage ×10, 5 MB each, while documents keep their normal rate; k6 fails the run if documents slow down) or `POST /chaos/storm`; Overview → *Meter save time (p95)* and the *Storm* row stays flat | ✅ (queue-depth panel pending, A) |
@@ -130,7 +130,7 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | Security | Docker socket exposure | Only chaos-control mounts the socket (`grep -rn docker.sock infra/compose.yml services/*/compose.yml apps/web/compose.yml`). It touches only the `postgres`, `seaweedfs` and `ftp` containers of its own Compose project, runs as `node` with every capability dropped except SETUID/SETGID, and needs an admin JWT | ✅ |
 | Resilience | Retries never duplicate meter readings | The simulator resends with the same `Idempotency-Key` and identical body (`make b-test`). After an outage, `docker compose exec postgres psql -U filegrid -d filegrid -c "select count(*), count(distinct (meter_id, period_start, seq)) from meter_readings"` shows equal numbers; Overview → *Smart meters*: "Readings stored" tracks "Sent" | ✅ |
 | Resilience | Meter readings are never lost | `docker compose stop filegrid-api`: *Readings waiting for confirmation* grows; after `docker compose start filegrid-api` it drains to 0 and every generated reading is in `meter_readings`, also across a simulator restart | ✅ |
-| Resilience | One storage down does not stop others | `POST /chaos/storages/s3/stop`: documents (ftp) and meter readings (db) still succeed; outage should fall back to `db` | chaos ✅, outage fallback pending (A) |
+| Resilience | One storage down does not stop others | `POST /chaos/storages/s3/stop`: documents (ftp) and meter readings (db) still succeed; outage records fall back to `db` (receipt `storage: db`); `make demo` step 3 shows it, then starts S3 again and outage goes back to `s3` | ✅ |
 | Resilience | Transfers on lossy links finish or resume without manual action | `make b-load S=video-lossy`: 256 MB over 150 ms ± 50 ms and 20 % connection loss; every cut chunk resumes from the server offset, download byte-identical | ✅ |
 | Resilience | Corruption detected on retrieval | `POST /chaos/corrupt {"fileId": …}` flips one byte directly in S3, FTP or PostgreSQL; the next download returns `422 INTEGRITY_FAILED` and `verify` returns `ok: false` | ✅ |
 
