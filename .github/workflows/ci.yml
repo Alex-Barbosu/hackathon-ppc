@@ -76,8 +76,13 @@ jobs:
         run: make up
       - name: Gateway routes answer
         run: |
+          # Up to 30s per route: the gateway's health checks need one interval to see new upstreams.
           for path in /api/v1/health /insights/health /chaos/state /mock/api/v1/health /grafana/api/health /; do
-            code=$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost$path")
+            for i in $(seq 1 15); do
+              code=$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost$path")
+              [ "$code" = "200" ] && break
+              sleep 2
+            done
             echo "$path -> $code"
             [ "$code" = "200" ] || exit 1
           done
