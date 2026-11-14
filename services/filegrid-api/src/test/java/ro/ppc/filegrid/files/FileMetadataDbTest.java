@@ -73,7 +73,8 @@ class FileMetadataDbTest {
 
     @Test
     void theSameRecordingFiledForAnotherCountyIsNotADuplicate() {
-        String sha = "e".repeat(64);
+        // A hash no other test in this class uses: the database is shared across its tests.
+        String sha = "7".repeat(64);
         FileRow r = rowWith(UUID.randomUUID(), "outage", sha, "banat", "stored");
         repo.insert(new FileRow(r.id(), r.category(), r.storage(), r.objectKey(), r.sizeBytes(), r.sha256(),
                 r.contentType(), r.originalName(), r.description(), r.region(), "Timiș", r.uploadedBy(), r.encrypted(),
