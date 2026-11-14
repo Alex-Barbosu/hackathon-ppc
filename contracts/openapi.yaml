@@ -1,0 +1,925 @@
+openapi: 3.1.0
+info:
+  title: FileGrid
+  version: 0.1.0
+  description: |
+    Contract v0 for every HTTP surface behind the Caddy gateway.
+    Paths are absolute (they include their service prefix) so the Prism mock
+    serves them exactly as the real gateway does.
+
+    Owners: `/api/v1/*` zone A (filegrid-api) · `/chaos/*` zone B (chaos-control) ·
+    `/insights/*` zone C (insights). Changes need approval from all three.
+servers:
+  - url: https://localhost
+    description: Gateway (real services)
+  - url: https://localhost/mock
+    description: Prism mock of this file
+tags:
+  - name: auth
+  - name: files
+  - name: meters
+  - name: policy
+  - name: storages
+  - name: chaos
+  - name: insights
+  - name: storage-lab
+security:
+  - bearer: []
+
+paths:
+  /api/v1/health:
+    get:
+      operationId: getApiHealth
+      tags: [storages]
+      summary: Liveness of filegrid-api
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in as a demo user and receive a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: dispatch }
+                password: { type: string, format: password, example: demo }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/files:
+    post:
+      operationId: uploadFile
+      tags: [files]
+      summary: Upload a small file (outage, document; ≤ policy maxSizeMb)
+      parameters:
+        - $ref: "#/components/parameters/ForceStorage"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [category, file]
+              properties:
+                category: { $ref: "#/components/schemas/Category" }
+                region: { $ref: "#/components/schemas/Region" }
+                description: { type: string, maxLength: 500 }
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Stored and verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileReceipt" }
+        "400": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: searchFiles
+      tags: [files]
+      summary: Search files
+      parameters:
+        - { name: category, in: query, schema: { $ref: "#/components/schemas/Category" } }
+        - { name: q, in: query, schema: { type: string }, description: Free text over name and description }
+        - { name: region, in: query, schema: { $ref: "#/components/schemas/Region" } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchPage" }
+
+  /api/v1/files/tus:
+    post:
+      operationId: createResumableUpload
+      tags: [files]
+      summary: Create a tus 1.0 resumable upload (videos; any category allowed)
+      description: |
+        Standard tus 1.0.0 creation. `Upload-Metadata` must carry base64 `category` and
+        `filename`; optional `region`. Follow-up `PATCH`/`HEAD` go to the returned Location.
+      parameters:
+        - { name: Tus-Resumable, in: header, required: true, schema: { type: string, const: "1.0.0" } }
+        - { name: Upload-Length, in: header, required: true, schema: { type: integer } }
+        - { name: Upload-Metadata, in: header, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: Upload created
+          headers:
+            Location: { schema: { type: string, example: /api/v1/files/tus/9b1c6e2a } }
+
+  /api/v1/files/tus/{uploadId}:
+    parameters:
+      - { name: uploadId, in: path, required: true, schema: { type: string } }
+    head:
+      operationId: getResumableUploadOffset
+      tags: [files]
+      summary: Current offset of a resumable upload
+      responses:
+        "200":
+          description: Offset
+          headers:
+            Upload-Offset: { schema: { type: integer } }
+            Upload-Length: { schema: { type: integer } }
+    patch:
+      operationId: appendResumableUpload
+      tags: [files]
+      summary: Append a chunk
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204":
+          description: Chunk accepted
+          headers:
+            Upload-Offset: { schema: { type: integer } }
+            X-FileGrid-File-Id: { schema: { type: string, format: uuid }, description: Present on the final chunk }
+
+  /api/v1/files/{id}:
+    parameters:
+      - $ref: "#/components/parameters/FileId"
+    get:
+      operationId: getFile
+      tags: [files]
+      summary: File metadata and receipt
+      responses:
+        "200":
+          description: Metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileMeta" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/files/{id}/content:
+    parameters:
+      - $ref: "#/components/parameters/FileId"
+    get:
+      operationId: downloadFile
+      tags: [files]
+      summary: Download, verifying SHA-256 while streaming
+      responses:
+        "200":
+          description: The original bytes
+          headers:
+            X-Content-SHA256: { schema: { type: string } }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+        "422":
+          description: Stored bytes do not match the recorded SHA-256 (code INTEGRITY_FAILED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/files/{id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/FileId"
+    post:
+      operationId: verifyFile
+      tags: [files]
+      summary: Re-hash the stored object and compare
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VerifyResult" }
+
+  /api/v1/meter-readings:
+    post:
+      operationId: ingestMeterReading
+      tags: [meters]
+      summary: Ingest one meter reading file (idempotent)
+      description: Device token required. Retries MUST reuse the same Idempotency-Key.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, example: "RO-MT-000123:2026-11-14T10:00:00Z:42" }
+          description: "{meterId}:{periodStart}:{seq}"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeterReadingFile" }
+      responses:
+        "201":
+          description: Accepted (first time)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeterAck" }
+        "200":
+          description: Duplicate (already stored; nothing written)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeterAck" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/policy:
+    get:
+      operationId: getPolicy
+      tags: [policy]
+      summary: Current storage policy
+      responses:
+        "200":
+          description: Policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+    put:
+      operationId: replacePolicy
+      tags: [policy]
+      summary: Replace the policy (admin); applied without restart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Policy" }
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/policy/history:
+    get:
+      operationId: getPolicyHistory
+      tags: [policy]
+      summary: Previous policy versions
+      responses:
+        "200":
+          description: Versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PolicyVersion" }
+
+  /api/v1/storages/health:
+    get:
+      operationId: getStoragesHealth
+      tags: [storages]
+      summary: Health of each storage backend
+      responses:
+        "200":
+          description: Per storage
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StorageHealth" }
+
+  /chaos/state:
+    get:
+      operationId: getChaosState
+      tags: [chaos]
+      summary: Current chaos state
+      responses:
+        "200":
+          description: State
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/storages/{storage}/{action}:
+    post:
+      operationId: setStorageRunning
+      tags: [chaos]
+      summary: Stop or start a storage container
+      parameters:
+        - { name: storage, in: path, required: true, schema: { $ref: "#/components/schemas/Storage" } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [stop, start] } }
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/network:
+    post:
+      operationId: setNetworkCondition
+      tags: [chaos]
+      summary: Degrade a network path through Toxiproxy (zeros = clear)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NetworkCondition" }
+      responses:
+        "202":
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/corrupt:
+    post:
+      operationId: corruptFile
+      tags: [chaos]
+      summary: Flip bytes of a stored file directly in its storage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileId]
+              properties:
+                fileId: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Corrupted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/storm:
+    post:
+      operationId: startStorm
+      tags: [chaos]
+      summary: Fire a load spike on one category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, multiplier, durationSec]
+              properties:
+                category: { $ref: "#/components/schemas/Category" }
+                multiplier: { type: number, minimum: 1, maximum: 50, example: 10 }
+                durationSec: { type: integer, minimum: 10, maximum: 1800, example: 120 }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/meters:
+    post:
+      operationId: setMeterRate
+      tags: [chaos]
+      summary: Set the simulator's reading rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [readingsPerSec]
+              properties:
+                readingsPerSec: { type: number, minimum: 0, maximum: 5000, example: 50 }
+      responses:
+        "202":
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /chaos/reset:
+    post:
+      operationId: resetChaos
+      tags: [chaos]
+      summary: Clear every chaos action
+      responses:
+        "202":
+          description: Reset
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChaosState" }
+
+  /insights/health:
+    get:
+      operationId: getInsightsHealth
+      tags: [insights]
+      summary: Liveness of insights
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /insights/ask:
+    post:
+      operationId: askAnalyst
+      tags: [insights]
+      summary: Ask the Claude grid analyst (Server-Sent Events)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, example: How did today's storm compare with a normal day? }
+                conversationId: { type: string }
+      responses:
+        "200":
+          description: Stream of AnalystEvent objects as SSE `data:` lines
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/AnalystEvent" }
+
+  /insights/briefing:
+    get:
+      operationId: getBriefing
+      tags: [insights]
+      summary: AI briefing for a period
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Briefing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Briefing" }
+
+  /insights/alerts:
+    post:
+      operationId: receiveAlerts
+      tags: [insights]
+      summary: Alertmanager webhook (internal network only, no JWT)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AlertmanagerWebhook" }
+      responses:
+        "202": { description: Accepted }
+
+  /insights/incidents:
+    get:
+      operationId: listIncidents
+      tags: [insights]
+      summary: Narrated incidents, newest first
+      responses:
+        "200":
+          description: Incidents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Incident" }
+
+  /insights/anomalies:
+    get:
+      operationId: listAnomalies
+      tags: [insights]
+      summary: Meter anomalies
+      parameters:
+        - { name: region, in: query, schema: { $ref: "#/components/schemas/Region" } }
+      responses:
+        "200":
+          description: Anomalies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Anomaly" }
+
+  /insights/outage-hotspots:
+    get:
+      operationId: listOutageHotspots
+      tags: [insights]
+      summary: Outage counts per county
+      responses:
+        "200":
+          description: Hotspots
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Hotspot" }
+
+  /insights/storage-lab/runs:
+    post:
+      operationId: startStorageLabRun
+      tags: [storage-lab]
+      summary: Start a benchmark of every category on every storage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                samplesPerCell: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorageLabRun" }
+
+  /insights/storage-lab/runs/{runId}:
+    get:
+      operationId: getStorageLabRun
+      tags: [storage-lab]
+      summary: Benchmark progress and results
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorageLabRun" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    FileId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ForceStorage:
+      name: X-FileGrid-Force-Storage
+      in: header
+      required: false
+      description: Admin only. Bypass the policy (Storage Lab benchmarks).
+      schema: { $ref: "#/components/schemas/Storage" }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Category:
+      type: string
+      enum: [meter, outage, document, video]
+    Storage:
+      type: string
+      enum: [db, s3, ftp]
+    Location:
+      type: string
+      description: Where bytes live now. `spool` only as a fallback, never a primary.
+      enum: [db, s3, ftp, spool]
+    Role:
+      type: string
+      enum: [field, dispatch, connections, admin, meter-device]
+    Region:
+      type: string
+      enum: [muntenia, banat, dobrogea]
+
+    Health:
+      type: object
+      required: [status, service]
+      properties:
+        status: { type: string, enum: [up, degraded, down], example: up }
+        service: { type: string, example: filegrid-api }
+        version: { type: string, example: 0.1.0 }
+
+    Session:
+      type: object
+      required: [token, role, expiresAt]
+      properties:
+        token: { type: string, example: eyJhbGciOiJIUzI1NiJ9.demo.signature }
+        role: { $ref: "#/components/schemas/Role" }
+        username: { type: string, example: dispatch }
+        expiresAt: { type: string, format: date-time }
+
+    FileReceipt:
+      type: object
+      required: [id, category, storage, sizeBytes, sha256, storedAt, encrypted, traceId, signature]
+      properties:
+        id: { type: string, format: uuid, example: 6f1c2b8e-3a1d-4f7e-9c0a-1b2c3d4e5f60 }
+        category: { $ref: "#/components/schemas/Category" }
+        storage: { $ref: "#/components/schemas/Location" }
+        sizeBytes: { type: integer, example: 5242880 }
+        sha256: { type: string, example: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 }
+        storedAt: { type: string, format: date-time }
+        encrypted: { type: boolean, example: false }
+        traceId: { type: string, example: 4bf92f3577b34da6a3ce929d0e0e4736 }
+        signature: { type: string, description: HMAC of the receipt fields }
+
+    FileMeta:
+      allOf:
+        - $ref: "#/components/schemas/FileReceipt"
+        - type: object
+          properties:
+            originalName: { type: string, example: statia-ploiesti-2026-11-14.cfg }
+            contentType: { type: string, example: application/octet-stream }
+            region: { $ref: "#/components/schemas/Region" }
+            description: { type: string }
+            uploadedBy: { type: string, example: dispatch }
+            lastVerifiedAt: { type: string, format: date-time }
+            status: { type: string, enum: [stored, spooled, corrupt], example: stored }
+
+    SearchPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/FileMeta" }
+        page: { type: integer, example: 0 }
+        size: { type: integer, example: 20 }
+        total: { type: integer, example: 1 }
+
+    VerifyResult:
+      type: object
+      required: [ok, expected, actual]
+      properties:
+        ok: { type: boolean, example: true }
+        expected: { type: string }
+        actual: { type: string }
+        checkedAt: { type: string, format: date-time }
+
+    MeterReadingFile:
+      type: object
+      description: One reading file sent by a smart meter (1–50 KB).
+      required: [meterId, region, county, periodStart, seq, intervals]
+      properties:
+        meterId: { type: string, example: RO-MT-000123 }
+        region: { $ref: "#/components/schemas/Region" }
+        county: { type: string, example: Prahova }
+        lat: { type: number, example: 44.94 }
+        lon: { type: number, example: 26.03 }
+        periodStart: { type: string, format: date-time }
+        seq: { type: integer, example: 42 }
+        firmware: { type: string, example: "3.2.1" }
+        intervals:
+          type: array
+          description: 15-minute intervals
+          items:
+            type: object
+            required: [ts, kwh]
+            properties:
+              ts: { type: string, format: date-time }
+              kwh: { type: number, example: 0.21 }
+              voltage: { type: number, example: 229.4 }
+              flags: { type: array, items: { type: string, enum: [tamper, power_loss, clock_drift] } }
+
+    MeterAck:
+      type: object
+      required: [result, idempotencyKey]
+      properties:
+        result: { type: string, enum: [accepted, duplicate], example: accepted }
+        idempotencyKey: { type: string, example: "RO-MT-000123:2026-11-14T10:00:00Z:42" }
+        storedAt: { type: string, format: date-time }
+
+    CategoryPolicy:
+      type: object
+      required: [primary, fallback, encrypt, maxSizeMb, priority, workers, queue]
+      properties:
+        primary: { $ref: "#/components/schemas/Storage" }
+        fallback: { type: string, enum: [db, s3, ftp, spool] }
+        encrypt: { type: boolean }
+        maxSizeMb: { type: integer, minimum: 1 }
+        priority: { type: string, enum: [high, normal, low] }
+        workers: { type: integer, minimum: 1 }
+        queue: { type: integer, minimum: 1 }
+        audit: { type: boolean, default: false }
+        chunkMb: { type: integer, minimum: 5 }
+
+    Policy:
+      type: object
+      required: [version, categories]
+      description: Mirrors contracts/policy.schema.json
+      properties:
+        version: { type: integer, example: 1 }
+        categories:
+          type: object
+          required: [meter, outage, document, video]
+          properties:
+            meter: { $ref: "#/components/schemas/CategoryPolicy" }
+            outage: { $ref: "#/components/schemas/CategoryPolicy" }
+            document: { $ref: "#/components/schemas/CategoryPolicy" }
+            video: { $ref: "#/components/schemas/CategoryPolicy" }
+
+    PolicyVersion:
+      type: object
+      required: [version, appliedAt, policy]
+      properties:
+        version: { type: integer }
+        appliedAt: { type: string, format: date-time }
+        appliedBy: { type: string }
+        policy: { $ref: "#/components/schemas/Policy" }
+
+    StorageHealth:
+      type: object
+      required: [storage, up, circuitOpen]
+      properties:
+        storage: { $ref: "#/components/schemas/Storage" }
+        up: { type: boolean, example: true }
+        latencyMs: { type: number, example: 4.2 }
+        circuitOpen: { type: boolean, example: false }
+
+    NetworkCondition:
+      type: object
+      required: [target]
+      properties:
+        target: { type: string, enum: [client, db, s3, ftp] }
+        latencyMs: { type: integer, minimum: 0, example: 300 }
+        jitterMs: { type: integer, minimum: 0, example: 50 }
+        lossPct: { type: number, minimum: 0, maximum: 100, example: 10 }
+        bandwidthKbps: { type: integer, minimum: 0, example: 0, description: 0 = unlimited }
+
+    ChaosState:
+      type: object
+      required: [storages, network, meters]
+      properties:
+        storages:
+          type: object
+          additionalProperties: { type: string, enum: [running, stopped] }
+          example: { db: running, s3: running, ftp: running }
+        network:
+          type: array
+          items: { $ref: "#/components/schemas/NetworkCondition" }
+        storm:
+          type: object
+          properties:
+            category: { $ref: "#/components/schemas/Category" }
+            multiplier: { type: number }
+            endsAt: { type: string, format: date-time }
+        meters:
+          type: object
+          properties:
+            readingsPerSec: { type: number, example: 20 }
+        log:
+          type: array
+          items:
+            type: object
+            properties:
+              at: { type: string, format: date-time }
+              action: { type: string, example: "stop s3" }
+
+    AnalystEvent:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [thinking, tool_call, text, sources, done, error] }
+        text: { type: string }
+        tool: { type: string, example: query_prometheus }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              query: { type: string }
+              value: { type: string }
+
+    Briefing:
+      type: object
+      required: [generatedAt, summary, sections]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        cached: { type: boolean, description: true when served from cache (e.g. AI unavailable) }
+        summary: { type: string }
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              body: { type: string }
+              metrics:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label: { type: string }
+                    value: { type: string }
+
+    AlertmanagerWebhook:
+      type: object
+      description: Alertmanager webhook payload v4
+      properties:
+        version: { type: string, example: "4" }
+        status: { type: string, enum: [firing, resolved] }
+        receiver: { type: string }
+        groupKey: { type: string }
+        commonLabels: { type: object, additionalProperties: { type: string } }
+        commonAnnotations: { type: object, additionalProperties: { type: string } }
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string }
+              labels: { type: object, additionalProperties: { type: string } }
+              annotations: { type: object, additionalProperties: { type: string } }
+              startsAt: { type: string, format: date-time }
+              endsAt: { type: string, format: date-time }
+              fingerprint: { type: string }
+
+    Incident:
+      type: object
+      required: [id, alert, status, startedAt]
+      properties:
+        id: { type: string }
+        alert: { type: string, example: StorageDown }
+        status: { type: string, enum: [firing, resolved] }
+        startedAt: { type: string, format: date-time }
+        atRisk: { type: string, example: Outage records may be delayed for dispatch }
+        probableCause: { type: string, example: SeaweedFS stopped; circuit open since 12:41 }
+        nextStep: { type: string, example: Restart S3; spool will drain automatically }
+
+    Anomaly:
+      type: object
+      required: [meterId, kind, score, at]
+      properties:
+        meterId: { type: string, example: RO-DB-004512 }
+        region: { $ref: "#/components/schemas/Region" }
+        county: { type: string, example: Constanța }
+        kind: { type: string, enum: [consumption_drop, stuck_meter, voltage_sag, spike] }
+        score: { type: number, example: 4.7 }
+        at: { type: string, format: date-time }
+        explanation: { type: string }
+
+    Hotspot:
+      type: object
+      required: [county, region, outages]
+      properties:
+        county: { type: string, example: Timiș }
+        region: { $ref: "#/components/schemas/Region" }
+        lat: { type: number, example: 45.75 }
+        lon: { type: number, example: 21.23 }
+        outages: { type: integer, example: 14 }
+        totalMinutes: { type: number, example: 412 }
+
+    StorageLabCell:
+      type: object
+      required: [category, storage, samples]
+      properties:
+        category: { $ref: "#/components/schemas/Category" }
+        storage: { $ref: "#/components/schemas/Storage" }
+        samples: { type: integer }
+        p50Ms: { type: number }
+        p95Ms: { type: number }
+        p99Ms: { type: number }
+        throughputMBps: { type: number }
+        errorRate: { type: number }
+
+    StorageLabRun:
+      type: object
+      required: [id, status, startedAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [running, done, failed] }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        cells:
+          type: array
+          items: { $ref: "#/components/schemas/StorageLabCell" }
+        recommendation:
+          type: array
+          items:
+            type: object
+            properties:
+              category: { $ref: "#/components/schemas/Category" }
+              storage: { $ref: "#/components/schemas/Storage" }
+              reason: { type: string }
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: INTEGRITY_FAILED
+          enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, TOO_LARGE, INTEGRITY_FAILED, STORAGE_UNAVAILABLE, INTERNAL]
+        message: { type: string }
+        traceId: { type: string }

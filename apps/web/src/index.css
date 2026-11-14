@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Design tokens (zone C). One restrained accent; warm neutral surfaces. */
+@theme {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, sans-serif;
+
+  --color-canvas: #f6f3ee;
+  --color-surface: #fffdf9;
+  --color-ink: #1d1b18;
+  --color-muted: #6e675d;
+  --color-line: #e6dfd4;
+  --color-accent: #1f5c57;
+  --color-accent-soft: #e3eeec;
+  --color-good: #2f7d4f;
+  --color-warn: #b7791f;
+  --color-bad: #b4413a;
+
+  --radius-card: 18px;
+}
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}

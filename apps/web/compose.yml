@@ -1,0 +1,11 @@
+# Zone C. Production build of the SPA; for hot reload run `make c-web` (Vite on :5173).
+services:
+  web:
+    build: .
+    networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:80/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped

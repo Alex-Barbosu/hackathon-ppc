@@ -1,0 +1,11 @@
+# FROZEN after the base: only `include:` lines. Each zone owns its own fragment,
+# so no two people ever edit the same compose file.
+name: filegrid
+
+include:
+  - infra/compose.yml                     # zone B: storages, gateway, chaos proxy, mock, observability
+  - services/filegrid-api/compose.yml     # zone A
+  - services/meter-simulator/compose.yml  # zone B
+  - services/chaos-control/compose.yml    # zone B
+  - services/insights/compose.yml         # zone C
+  - apps/web/compose.yml                  # zone C

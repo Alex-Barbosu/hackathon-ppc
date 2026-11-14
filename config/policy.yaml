@@ -1,0 +1,8 @@
+# FileGrid storage policy. Owned by zone A. Validated by contracts/policy.schema.json.
+# Starting hypothesis; Storage Lab benchmarks confirm or change it. Hot-reloaded: no restart.
+version: 1
+categories:
+  meter:    { primary: db,  fallback: spool, encrypt: false, maxSizeMb: 1,    priority: high,   workers: 16, queue: 5000 }
+  outage:   { primary: s3,  fallback: db,    encrypt: false, maxSizeMb: 20,   priority: high,   workers: 8,  queue: 500 }
+  document: { primary: ftp, fallback: s3,    encrypt: true,  maxSizeMb: 20,   priority: normal, workers: 4,  queue: 200, audit: true }
+  video:    { primary: s3,  fallback: spool, encrypt: false, maxSizeMb: 5000, priority: low,    workers: 2,  queue: 20,  chunkMb: 16 }

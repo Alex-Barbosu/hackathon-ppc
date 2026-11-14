@@ -1,0 +1,22 @@
+# Zone C. Reaches Postgres as the read-only `insights` role; needs internet for the
+# Anthropic API (the `app` network is not internal).
+services:
+  insights:
+    build: .
+    environment:
+      INSIGHTS_DATABASE_URL: postgres://insights:${INSIGHTS_DB_PASSWORD:?run make up to generate .env}@postgres:5432/filegrid
+      PROMETHEUS_URL: http://prometheus:9090
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FILEGRID_API_URL: http://filegrid-api:8080
+      JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks: [app, data]
+    depends_on:
+      postgres: { condition: service_healthy }
+      filegrid-api: { condition: service_healthy }   # Flyway must create public tables first
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8070/insights/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped

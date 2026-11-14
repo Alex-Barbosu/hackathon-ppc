@@ -1,0 +1,26 @@
+# Zone B. One rule per alert in contracts/alerts.md. Only StorageDown and
+# IntegrityFailure are wired in the base; the rest are added in zone B's backlog.
+groups:
+  - name: filegrid-guarantees
+    rules:
+      - alert: StorageDown
+        expr: filegrid_storage_up == 0
+        for: 30s
+        labels: { severity: critical, category: all, guarantee: isolation }
+        annotations:
+          summary: "{{ $labels.storage }} storage is down"
+          description: "filegrid_storage_up{storage=\"{{ $labels.storage }}\"} == 0 for 30s"
+
+      - alert: IntegrityFailure
+        expr: increase(filegrid_integrity_failures_total[5m]) > 0
+        labels: { severity: critical, guarantee: integrity }
+        annotations:
+          summary: "Corrupted {{ $labels.category }} file detected in {{ $labels.storage }}"
+          description: "SHA-256 mismatch on read or verify"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 30s
+        labels: { severity: warning, guarantee: availability }
+        annotations:
+          summary: "{{ $labels.job }} is not being scraped"

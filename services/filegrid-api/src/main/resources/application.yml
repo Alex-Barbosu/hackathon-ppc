@@ -1,0 +1,46 @@
+# Zone A. Every value that differs per environment comes from env vars set in compose.yml.
+spring:
+  application:
+    name: filegrid-api
+  threads:
+    virtual:
+      enabled: true   # blocking I/O (JDBC, FTP, S3) without thread-pool starvation
+  datasource:
+    url: ${PG_URL:jdbc:postgresql://postgres:5432/filegrid}
+    username: ${PG_USER:filegrid}
+    password: ${PG_PASSWORD:}
+  flyway:
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 26MB
+
+server:
+  port: 8080
+  shutdown: graceful
+
+filegrid:
+  version: 0.1.0
+  policy-file: ${FILEGRID_POLICY_FILE:/config/policy.yaml}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318}/v1/traces
+
+logging:
+  structured:
+    format:
+      console: ecs   # JSON logs with trace ids, ready for Loki
