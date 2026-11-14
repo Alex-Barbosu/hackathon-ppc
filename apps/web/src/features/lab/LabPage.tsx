@@ -19,7 +19,7 @@ export function LabPage() {
       <RunBar run={run} />
       {isError && <p role="alert" className="text-sm text-bad">Storage Lab is unreachable. Nothing is lost; try again in a moment.</p>}
       {isPending ? <div className="h-96 animate-pulse rounded-card bg-surface" /> : <Matrix run={run} current={current} />}
-      {run && run.recommendation.length > 0 ? (
+      {run?.recommendation && run.recommendation.length > 0 ? (
         <section aria-label="Recommendations" className="space-y-4">
           <h2 className="font-display text-2xl">Recommended policy</h2>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

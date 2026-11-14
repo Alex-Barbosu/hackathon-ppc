@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { fmtMbps, fmtMs } from "./format";
-import { STORAGE_NAME, type LabCell } from "./types";
+import type { LabCell } from "../../lib/domain";
+import { STORAGE_NAME } from "./constants";
 
 function Pill({ children, tone }: { children: string; tone: "accent" | "muted" }) {
   return (
