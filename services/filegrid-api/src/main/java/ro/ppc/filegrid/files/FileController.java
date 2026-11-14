@@ -2,7 +2,6 @@ package ro.ppc.filegrid.files;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -129,8 +128,13 @@ public class FileController {
         if (dl.sizeBytes() >= 0) {
             response.setContentLengthLong(dl.sizeBytes());
         }
-        try (InputStream in = dl.stream(); OutputStream out = response.getOutputStream()) {
-            in.transferTo(out);
+        try (InputStream in = dl.stream()) {
+            in.transferTo(response.getOutputStream());
+        } catch (VerifyingInputStream.StreamIntegrityException e) {
+            // A large file read in one pass failed its check at the end. The service has counted, audited and logged it.
+            // The last chunk was held back, so the body is shorter than Content-Length: the client sees a cut transfer.
+            // Do not write an error body here: it would be taken for file bytes.
+            response.flushBuffer();
         }
     }
 

@@ -521,3 +521,43 @@ Notes:
 Unit tests: 38 new: span names and attributes, error marking, the log context put back after a scope, the noise
 filter, the OTLP log appender (early buffer, trace mapping, its own lines skipped), and span trees in the file, tus, meter and
 replay services.
+
+## Large downloads: read once
+
+Before, every download read the stored file twice: once to hash it (the first byte waited for that), and again to send it. That is
+right for small files, because a corrupt file then gets a clean `422` before any body is sent. For a 1 GB video the wait is long.
+
+| File size | How it is sent | A corrupt file gives |
+| --- | --- | --- |
+| up to `filegrid.download.verify-first-max-bytes` (64 MiB; env `FILEGRID_DOWNLOAD_VERIFY_FIRST_MAX_BYTES`) | hash first, then send (two reads) | `422 INTEGRITY_FAILED`, no body |
+| larger | read once: the hash is built while the bytes go out | a transfer that stops short; no complete body |
+
+Documents and outage files are far below the limit, so they keep the clean `422`. Only large video takes the single pass.
+
+How the single pass stays safe:
+
+- The stream always holds back its last chunk (64 KiB). When the stored object ends, the hash is compared **before** that chunk
+  is released. If it differs, the chunk is never sent and the connection ends early. The client sees fewer bytes than
+  `Content-Length`, so it cannot mistake the file for a good one. A client can also hash the bytes and compare them with the
+  `X-Content-SHA256` header.
+- Honest limit: the status line (`200`) and the earlier bytes are already out when the mismatch is found, so a `422` is not possible
+  on this path. Encrypted files fail earlier: each 64 KiB segment is authenticated as it is read.
+- The read is audited before the first byte, as `file.read` with `result=streaming`. A mismatch adds `file.read_denied` when it is found.
+  The file is marked `corrupt`, `filegrid_integrity_failures_total` goes up, and the read counts as an error.
+- Spans: `storage.read` ends when the client has the last byte; `integrity.verify` (`single_pass=true`) ends when the hash is compared.
+- Memory: two chunks per download, whatever the file size.
+
+### Proof (`make a-download-check`)
+
+| Check | Result |
+| --- | --- |
+| 48 MiB file (hash first) | identical; first byte after about 0.1 s |
+| 96 MiB file (single pass, uploaded with tus) | identical, `X-Content-SHA256` is the original's; first byte after about 0.02 s |
+| 96 MiB file, recorded hash changed in Postgres | 100 597 760 of 100 663 296 bytes arrive (the last 64 KiB is held back), failure counted, file `corrupt` |
+| Hash put back | the file reads again |
+
+The first-byte gain is small here because the lab files are small and local. The hashing pass is a read of the whole file, so it
+grows with the size: for 1 GB it is the time to read 1 GB from storage.
+
+Unit tests: 13 new: the stream (sizes around the chunk, empty, corrupt, short file, early close, failed decryption, read-ahead
+limit) and the service (one read for a large file, two for a small one, corrupt large file, missing file).

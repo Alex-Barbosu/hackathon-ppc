@@ -50,6 +50,9 @@ filegrid:
     # A volume in compose, so parked files survive a container restart.
     dir: ${FILEGRID_SPOOL_DIR:/var/filegrid/spool}
   policy-file: ${FILEGRID_POLICY_FILE:/config/policy.yaml}
+  download:
+    # Up to this size a download is hashed first (a corrupt file gets a clean 422). Above it, the file is read once.
+    verify-first-max-bytes: ${FILEGRID_DOWNLOAD_VERIFY_FIRST_MAX_BYTES:67108864}
 
 management:
   endpoints:
