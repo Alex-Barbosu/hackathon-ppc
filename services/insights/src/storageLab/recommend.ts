@@ -1,5 +1,5 @@
 import { round } from "./stats.js";
-import { BENCH_CATEGORIES, type Category, type Cell, type Evidence, type Recommendation, type Storage } from "./types.js";
+import { BENCH_CATEGORIES, STORAGES, type Category, type Cell, type Evidence, type Recommendation, type Storage } from "./types.js";
 
 // Facts no benchmark can show: what each storage guarantees. A fit adds a fixed bonus, so a
 // storage that is somewhat slower can still win, and the reason says by how much it lost.
@@ -33,7 +33,11 @@ function chips(c: Cell): Evidence[] {
   ];
 }
 
-function recommendCategory(category: Category, cells: Cell[]): Recommendation {
+interface Ranked { c: Cell; perf: number; total: number }
+/** A category's recommendation plus what the coverage pass needs to re-pin it. */
+interface Pick { rec: Recommendation; ranked: Ranked[]; ruledOut: string[] }
+
+function pickCategory(category: Category, cells: Cell[]): Pick {
   const mine = cells.filter((c) => c.category === category);
   const ok = mine.filter(viable);
   const fit = FIT[category];
@@ -44,10 +48,12 @@ function recommendCategory(category: Category, cells: Cell[]): Recommendation {
   }
   if (ok.length === 0) {
     const storage = fit?.storage ?? "s3";
-    return { category, storage, benchmarked: false, evidence: [], reasons: [...reasons, "No storage completed every sample, so the fixed fit decides."], reason: `No storage passed the benchmark. ${fit ? `Keeping ${label(storage)}: ${fit.why}.` : ""}`.trim() };
+    const rec: Recommendation = { category, storage, benchmarked: false, evidence: [], reasons: [...reasons, "No storage completed every sample, so the fixed fit decides."], reason: `No storage passed the benchmark. ${fit ? `Keeping ${label(storage)}: ${fit.why}.` : ""}`.trim() };
+    return { rec, ranked: [], ruledOut: reasons };
   }
   const best = { w: Math.min(...ok.map((c) => c.write!.p95Ms)), r: Math.min(...ok.map((c) => c.read!.p95Ms)), t: Math.max(...ok.map((c) => c.throughputMBps ?? 0)) };
-  const ranked = ok
+  const ruledOut = [...reasons];
+  const ranked: Ranked[] = ok
     .map((c) => ({ c, perf: score(c, best), total: score(c, best) + (fit?.storage === c.storage ? FIT_BONUS : 0) }))
     .sort((a, b) => b.total - a.total);
   const top = ranked[0]!;
@@ -73,7 +79,52 @@ function recommendCategory(category: Category, cells: Cell[]): Recommendation {
   } else {
     reasons.push("No storage guarantee applies to this category, so latency and throughput decide.");
   }
-  return { category, storage: top.c.storage, benchmarked: true, evidence: chips(top.c), reasons, reason: reasons.slice(0, 2).join(" ") };
+  return { rec: { category, storage: top.c.storage, benchmarked: true, evidence: chips(top.c), reasons, reason: reasons.slice(0, 2).join(" ") }, ranked, ruledOut };
+}
+
+const SUBJECT: Partial<Record<Category, { noun: string; verb: string }>> = {
+  document: { noun: "documents", verb: "stay" },
+  outage: { noun: "outage records", verb: "stay" },
+  video: { noun: "drone video", verb: "stays" },
+};
+
+/** "FTPS keeps the audit trail" reads as "it keeps the audit trail" right after naming FTPS. */
+const asClause = (why: string) => why.replace(/^(PostgreSQL|S3|FTPS) keeps /, "it keeps ");
+
+/**
+ * Brief gating 2: FTP, S3 and the database must each be really used. If the per-category winners
+ * leave a storage with no category, the category that loses least by moving there takes it, and
+ * the reason names both the faster storage and the rule, so the constraint is a stated judgement.
+ */
+function enforceCoverage(meter: Recommendation, picks: Pick[]): void {
+  for (const s of STORAGES) {
+    if ([meter, ...picks.map((p) => p.rec)].some((r) => r.storage === s)) continue;
+    const options = picks.flatMap((p) => {
+      const to = p.ranked.find((r) => r.c.storage === s);
+      const from = p.ranked.find((r) => r.c.storage === p.rec.storage);
+      // Moving must not strand the storage this category currently holds.
+      const others = [meter, ...picks.filter((q) => q !== p).map((q) => q.rec)];
+      return to && from && others.some((r) => r.storage === p.rec.storage) ? [{ p, to, from, loss: from.total - to.total }] : [];
+    });
+    const best = options.sort((a, b) => a.loss - b.loss)[0];
+    if (best) repin(best.p, best.to, best.from);
+  }
+}
+
+function repin(p: Pick, to: Ranked, from: Ranked): void {
+  const cat = p.rec.category;
+  const subject = SUBJECT[cat]!;
+  const fit = FIT[cat];
+  const kept = label(to.c.storage);
+  const faster = to.c.write!.p95Ms > from.c.write!.p95Ms;
+  const reason =
+    `${label(from.c.storage)} ${faster ? "was faster" : "ranked higher"} for ${subject.noun} (write p95 ${ms(from.c.write!.p95Ms)} vs ${ms(to.c.write!.p95Ms)} on ${kept}), ` +
+    `but ${subject.noun} ${subject.verb} on ${kept}: ${fit?.storage === to.c.storage ? `${asClause(fit.why)}, and ` : ""}the brief requires every storage to be in use.`;
+  const head = `${kept}: write p95 ${ms(to.c.write!.p95Ms)}, read p95 ${ms(to.c.read!.p95Ms)}, ${round(to.c.throughputMBps ?? 0)} MB/s, 0 errors, SHA-256 verified on every download.`;
+  p.rec.storage = to.c.storage;
+  p.rec.reasons = [head, reason, ...p.ruledOut];
+  p.rec.reason = [head, reason].join(" ");
+  p.rec.evidence = [...chips(to.c), { label: `${label(from.c.storage)} write p95`, value: ms(from.c.write!.p95Ms) }];
 }
 
 export function recommend(cells: Cell[]): Recommendation[] {
@@ -85,5 +136,7 @@ export function recommend(cells: Cell[]): Recommendation[] {
     reasons: [`Meters are not benchmarked here; the simulator drives them. PostgreSQL stays: ${FIT.meter!.why}.`],
     reason: `PostgreSQL: ${FIT.meter!.why}. Not benchmarked here.`,
   };
-  return [meter, ...BENCH_CATEGORIES.map((c) => recommendCategory(c, cells))];
+  const picks = BENCH_CATEGORIES.map((c) => pickCategory(c, cells));
+  enforceCoverage(meter, picks);
+  return [meter, ...picks.map((p) => p.rec)];
 }

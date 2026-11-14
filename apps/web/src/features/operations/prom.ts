@@ -11,8 +11,6 @@ export const Q = {
   // Outage write rate is the fallback story line while zone A has not emitted queue depth.
   outageRate: 'sum(rate(filegrid_ops_total{category="outage"}[1m]))',
   simSent: "sum(meter_sim_sent_total)",
-  simAcked: 'sum(meter_sim_acked_total{result="accepted"})',
-  simDuplicates: 'sum(meter_sim_acked_total{result="duplicate"})',
   storedAccepted: 'sum(filegrid_meter_readings_total{result="accepted"})',
   storedDuplicates: 'sum(filegrid_meter_readings_total{result="duplicate"})',
 } as const;

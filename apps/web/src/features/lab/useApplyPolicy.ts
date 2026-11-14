@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { LabRecommendation, Policy } from "../../lib/domain";
 import { policyErrorText } from "./policyError";
-import { planPolicyChange, type PolicyPlan } from "./policyMerge";
+import { reviewPolicyChange, type PolicyReview } from "./policyGuard";
 import { POLICY_KEY } from "./useLab";
 
 type Failure = { error?: { code?: string }; response: Response };
@@ -16,9 +16,9 @@ export function useApplyPolicy(recs: readonly LabRecommendation[]) {
   const qc = useQueryClient();
   // Fresh GET on click: the preview must be built from what is in force now, not from a cached copy.
   const prepare = useMutation({
-    mutationFn: async (): Promise<PolicyPlan> => {
+    mutationFn: async (): Promise<PolicyReview> => {
       const res = await api.GET("/api/v1/policy");
-      return res.data ? planPolicyChange(res.data, recs) : fail(res);
+      return res.data ? reviewPolicyChange(res.data, recs) : fail(res);
     },
   });
   const apply = useMutation({

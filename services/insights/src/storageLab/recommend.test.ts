@@ -39,8 +39,43 @@ test("meters get the database with the dedup reason and no benchmark claim", () 
   assert.equal(r.benchmarked, false);
 });
 
-test("when the fit loses clearly, the reason names what it would have given", () => {
-  const r = recommend([cell("document", "db", 90, 35, 24), cell("document", "s3", 270, 100, 18), cell("document", "ftp", 170, 330, 12)]).find((x) => x.category === "document")!;
-  assert.equal(r.storage, "db");
-  assert.ok(r.reasons.some((x) => /audit trail.*outweighs that guarantee/.test(x)));
+const by = (recs: ReturnType<typeof recommend>, c: Category) => recs.find((x) => x.category === c)!;
+// Realistic matrix: S3 is fastest for documents, FTPS is slowest, video only works on S3.
+const matrix = () => [
+  cell("outage", "db", 280, 65, 24), cell("outage", "s3", 210, 98, 25), cell("outage", "ftp", 650, 430, 12),
+  cell("document", "db", 109, 55, 23), cell("document", "s3", 80, 48, 28), cell("document", "ftp", 370, 416, 6.9),
+  cell("video", "db", 1, 1, 1, 2), cell("video", "s3", 2400, 1200, 51), cell("video", "ftp", 1, 1, 1, 2),
+];
+
+test("every storage stays in use: documents are kept on FTPS although S3 is faster, and the reason says both", () => {
+  const recs = recommend(matrix());
+  assert.deepEqual(new Set(recs.map((r) => r.storage)), new Set(["db", "s3", "ftp"]));
+  const doc = by(recs, "document");
+  assert.equal(doc.storage, "ftp");
+  assert.equal(
+    doc.reasons[1],
+    "S3 was faster for documents (write p95 80 ms vs 370 ms on FTPS), but documents stay on FTPS: it keeps the encrypted-document audit trail on a separate service, and the brief requires every storage to be in use.",
+  );
+  assert.match(doc.reason, /S3 was faster for documents/);
+});
+
+test("the numbers of both storages are kept as source chips", () => {
+  const doc = by(recommend(matrix()), "document");
+  const chips = Object.fromEntries(doc.evidence.map((e) => [e.label, e.value]));
+  assert.equal(chips["write p95"], "370 ms");
+  assert.equal(chips["S3 write p95"], "80 ms");
+});
+
+test("the category that loses least is the one that gives way", () => {
+  // Outage would also lose by moving to FTPS, but far more than documents.
+  const recs = recommend(matrix());
+  assert.equal(by(recs, "outage").storage, "s3");
+  assert.equal(by(recs, "video").storage, "s3");
+  assert.equal(by(recs, "meter").storage, "db");
+});
+
+test("when FTPS failed its samples nothing can be pinned to it, and nothing breaks", () => {
+  const cells = matrix().map((c) => (c.category === "document" && c.storage === "ftp" ? cell("document", "ftp", 1, 1, 1, 3) : c));
+  const doc = by(recommend(cells), "document");
+  assert.equal(doc.storage, "s3");
 });
