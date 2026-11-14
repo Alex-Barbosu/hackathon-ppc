@@ -561,3 +561,73 @@ grows with the size: for 1 GB it is the time to read 1 GB from storage.
 
 Unit tests: 13 new: the stream (sizes around the chunk, empty, corrupt, short file, early close, failed decryption, read-ahead
 limit) and the service (one read for a large file, two for a small one, corrupt large file, missing file).
+
+## Round from Zone C: what was already there, and what was added
+
+Zone C's list (policy API, metrics, health, delete, bulkheads, Toxiproxy), item by item:
+
+| # | Ask | State |
+| --- | --- | --- |
+| 1 | `PUT /api/v1/policy` (admin), hot reload, `policy_versions` row | Already merged (PR #25). Unchanged. |
+| 2 | `filegrid_queue_depth{category}`, `filegrid_storage_up{storage}`, `filegrid_circuit_open{storage}` | Already merged (PR #22 and #28), checked on `/actuator/prometheus`. Unchanged. |
+| 3 | `/storages/health`: 1 s probe timeout, 2 s cache | **New**, below. |
+| 4 | `DELETE /api/v1/files/{id}` (admin, audited) | **New**, below. |
+| 5 | Per-category bulkheads | Already merged (PR #28). Unchanged. |
+| 6 | PG, S3 and FTP through Toxiproxy | **New** for Postgres and S3. FTP needs a change in Zone B's file, below. |
+
+### `/storages/health`
+
+- The page never calls a backend. It returns the last probe, and the probes now run every 2 s (before: 5 s). That is the 2 s cache.
+- The three probes run side by side and each gets 1 s. One that has not answered by then counts as down. Before, one hanging probe
+  (an S3 that accepts the connection and says nothing, about 9 s of client retries) held the others back and left all results stale.
+- A probe that is still stuck is not started again, so a hung storage does not pile up threads.
+- The S3 probe also carries a 1 s call timeout, so the call itself is cut and not only abandoned.
+- Worst case: a storage is reported down about 3 s after it hangs, and about 3 s after it returns it is reported up.
+
+### `DELETE /api/v1/files/{id}`
+
+| Case | Answer |
+| --- | --- |
+| admin, file exists | `204`. The stored bytes are removed from the storage that holds them, then the row (a database blob and key material go with it). |
+| any other role (also a meter device or a download link) | `403`, the file stays. |
+| unknown id, or deleted twice | `404` |
+| storage cannot be reached (circuit open or down) | `503`, the row stays, so no object is left with nothing pointing at it. Safe to repeat. |
+| category whose policy audits (documents) | `file.delete` is written in the same transaction as the row removal. If the audit cannot be written, the file is not deleted (`503`). |
+
+The audit rows of a deleted file are kept: `audit_log` has no foreign key to `files`, and the chain still verifies. A file still waiting
+in the spool has its spool entries dropped first. Small race: a replay that already took that entry can still write the object to the
+real storage after the row is gone (an orphan object, no row). `filegrid_ops_total` has no `delete` op because the contract lists only
+`write`, `read`, `verify`.
+
+### Toxiproxy
+
+`services/filegrid-api/compose.yml` now sets `PG_URL=jdbc:postgresql://toxiproxy:15432/filegrid` and `S3_ENDPOINT=http://toxiproxy:18333`,
+so a toxic on the `pg` or `s3` proxy slows or cuts the storage for real. Proof in `make a-ops-check`: a 400 ms toxic on `s3` moved an
+outage upload from 0.02 s to 0.85 s, and a 300 ms toxic on `pg` moved a database read from 0.01 s to 0.32 s. `make a-fallback-check`
+and a 100 MiB tus upload still pass through the proxy.
+
+**FTP is not routed through the proxy yet.** I tried it: the control channel works, but a file transfer fails. vsftpd sends the data
+over passive ports 30000 to 30009 and (`pasv_promiscuous=NO`) accepts a data connection only from the same address as the control
+connection. With the control channel proxied, the data connection must be proxied too. A document then fell back to S3 (so the check
+`a-doc-check` failed), which is why the default stays `ftp:21`.
+
+Proposed for `infra/toxiproxy/toxiproxy.json` (Zone B's file, not changed here): ten more proxies, 
+`{ "name": "ftp_pasv_3000N", "listen": "0.0.0.0:3000N", "upstream": "ftp:3000N", "enabled": true }` for N = 0 to 9. I created them by hand
+for a test and `a-doc-check` passed through the proxy, then removed them. Once they are in, put `FILEGRID_FTP_HOST=toxiproxy` and
+`FILEGRID_FTP_PORT=12121` in `.env` (no code change). Zone B's `chaos-control` would also need to put its toxic on those proxies for the
+data to slow down; today it targets only `ftp`, which slows the control channel.
+
+### Proof (`make a-ops-check`)
+
+| Check | Result |
+| --- | --- |
+| field user deletes | `403`, file still there |
+| admin deletes | `204`; metadata and content `404`; second delete `404` |
+| file in the database | its blob row is gone |
+| document | `file.delete` in the audit log, older rows kept, chain verifies |
+| S3 hangs (`timeout` toxic) | `/storages/health` answers in 12 ms at the slowest; S3 reported down after 2.6 s |
+| network back | S3 reported up again after 2 s |
+
+Unit tests: 9 new: the monitor (a hung probe is down after 1 s and does not hold back the others, a stuck probe is not restarted,
+`snapshot()` never waits), delete (bytes, row and audit together, no audit event for an unaudited category, audit failure refuses,
+unreachable storage keeps the row, 404) and the access rule.

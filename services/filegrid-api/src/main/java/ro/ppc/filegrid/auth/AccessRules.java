@@ -26,6 +26,9 @@ public final class AccessRules {
     public static final String HEALTH_PATH = "/api/v1/health";
     public static final String POLICY_PATH = "/api/v1/policy";
 
+    private static final Pattern FILE_PATH =
+            Pattern.compile("^/api/v1/files/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/?$");
+
     private static final Pattern CONTENT_PATH =
             Pattern.compile("^/api/v1/files/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/content$");
 
@@ -48,13 +51,19 @@ public final class AccessRules {
         return path.startsWith(POLICY_PATH) && !"GET".equals(method) && !"HEAD".equals(method);
     }
 
+    /** DELETE /api/v1/files/{id}: removes a file and its bytes, so it is for admins only (the contract). */
+    private static boolean isFileDelete(String method, String path) {
+        return "DELETE".equals(method) && FILE_PATH.matcher(path).matches();
+    }
+
     public static boolean allowed(Role role, String method, String path) {
         return switch (role) {
             case ADMIN -> true;
             case METER_DEVICE -> "POST".equals(method) && METER_PATH.equals(path);
             case DOWNLOAD_LINK -> "GET".equals(method) && contentFileId(path) != null;
             // Reading the policy is for everyone logged in; changing it is admin only (the contract).
-            case FIELD, DISPATCH, CONNECTIONS -> !METER_PATH.equals(path) && !isPolicyChange(method, path);
+            case FIELD, DISPATCH, CONNECTIONS ->
+                    !METER_PATH.equals(path) && !isPolicyChange(method, path) && !isFileDelete(method, path);
         };
     }
 }

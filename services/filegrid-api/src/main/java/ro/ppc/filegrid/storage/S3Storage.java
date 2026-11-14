@@ -82,7 +82,9 @@ public class S3Storage implements StorageAdapter {
     public boolean health() {
         // Any bucket probe proves the endpoint answers; outage bucket always exists.
         try {
-            s3.headBucket(HeadBucketRequest.builder().bucket(bucketFor(Category.OUTAGE)).build());
+            // One second, whatever the client's own timeouts are: a probe must answer, not wait.
+            s3.headBucket(HeadBucketRequest.builder().bucket(bucketFor(Category.OUTAGE))
+                    .overrideConfiguration(c -> c.apiCallTimeout(java.time.Duration.ofSeconds(1))).build());
             return true;
         } catch (Exception e) {
             log.debug("s3 health probe failed: {}", e.toString());

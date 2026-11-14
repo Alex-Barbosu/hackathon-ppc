@@ -140,4 +140,67 @@ class StorageMonitorTest {
         assertThat(monitor.snapshot()).extracting(StorageMonitor.Snapshot::storage)
                 .containsExactly(Storage.DB, Storage.S3, Storage.FTP);
     }
+
+    @Test
+    void aProbeThatHangsIsDownAfterOneSecondAndDoesNotHoldBackTheOthers() {
+        when(s3.health()).thenAnswer(inv -> {
+            Thread.sleep(8_000); // a paused S3: the client would give up after several seconds
+            return true;
+        });
+
+        long started = System.nanoTime();
+        monitor.probeAll();
+        long tookMs = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(tookMs).as("the whole round").isBetween(900L, 2_500L);
+        assertThat(of(Storage.S3).up()).isFalse();
+        assertThat(up(Storage.S3)).isZero();
+        assertThat(of(Storage.DB).up()).isTrue();
+        assertThat(of(Storage.FTP).up()).isTrue();
+    }
+
+    @Test
+    void aProbeThatIsStillStuckIsNotStartedAgain() {
+        // A socket read that ignores interrupts, as a blocked client call may.
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        when(s3.health()).thenAnswer(inv -> {
+            while (release.getCount() > 0) {
+                try {
+                    release.await();
+                } catch (InterruptedException ignored) {
+                    // keep waiting
+                }
+            }
+            return true;
+        });
+
+        try {
+            monitor.probeAll();
+            long started = System.nanoTime();
+            monitor.probeAll();
+            long tookMs = (System.nanoTime() - started) / 1_000_000;
+
+            verify(s3, times(1)).health();
+            assertThat(of(Storage.S3).up()).isFalse();
+            assertThat(tookMs).as("nothing to wait for on the stuck one").isLessThan(500L);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void theHealthEndpointNeverWaitsForABackend() {
+        monitor.probeAll();
+        when(s3.health()).thenAnswer(inv -> {
+            Thread.sleep(8_000);
+            return false;
+        });
+
+        long started = System.nanoTime();
+        monitor.snapshot();
+        long tookMs = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(tookMs).isLessThan(100L);
+        verify(s3, times(1)).health();
+    }
 }
