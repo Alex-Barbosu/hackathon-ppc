@@ -1,5 +1,6 @@
 import { ChaosDock } from "../chaos/ChaosDock";
 import { Toasts } from "../chaos/Toasts";
+import { AlertFeed } from "./AlertFeed";
 import { HeroCharts } from "./HeroCharts";
 import { MeterIntegrity } from "./MeterIntegrity";
 import { StorageStrip } from "./StorageStrip";
@@ -13,6 +14,7 @@ export function OperationsPage() {
         <p className="mt-3 max-w-xl text-muted">Live from the last minute, refreshed every 5 seconds. Break something from the chaos dock and watch the guarantees hold.</p>
       </header>
       <StorageStrip />
+      <AlertFeed />
       <Tiles />
       <HeroCharts />
       <MeterIntegrity />

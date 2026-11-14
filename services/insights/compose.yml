@@ -7,6 +7,11 @@ services:
       INSIGHTS_DATABASE_URL: postgres://insights:${INSIGHTS_DB_PASSWORD:?run make up to generate .env}@postgres:5432/filegrid
       PROMETHEUS_URL: http://prometheus:9090
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Haiku while building, Sonnet for the demo: set ANALYST_MODEL=claude-sonnet-5-5 in .env.
+      NARRATOR_MODEL: ${NARRATOR_MODEL:-claude-haiku-5-5}
+      ANALYST_MODEL: ${ANALYST_MODEL:-claude-haiku-5-5}
+      # A guard against loops and floods, not billing: set the real spend limit in the Anthropic Console.
+      AI_MAX_CALLS_PER_HOUR: ${AI_MAX_CALLS_PER_HOUR:-120}
       FILEGRID_API_URL: http://filegrid-api:8080
       JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318

@@ -101,3 +101,35 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
   scrape before a restart never reach the counter. After restarting the API the card showed 600 vs 597 for the next 10 minutes
   while the database held exactly 600 distinct readings. A shorter window heals faster; a tolerance or a database-side count
   would remove it.
+
+## Intelligence layer (round 5)
+
+Code in `services/insights/src/intelligence`, migration `V302`, web in `features/insights` and `operations/AlertFeed`.
+
+- **Narrator** (`POST /insights/alerts`, `GET /insights/incidents`): stores every alert once per (fingerprint, start), then a
+  background queue (2 at a time) asks `NARRATOR_MODEL` (default `claude-haiku-5-5`) for two sentences. The model sees only
+  allowlisted label values and scrubbed annotation text, plus a few numeric metrics for the alert's category and storage. Label
+  values are validated before they reach PromQL. Caddy already answers 404 for this path from outside; the handler also refuses any
+  request that carries forwarding headers.
+- **Briefing** (`GET /insights/briefing`): facts are gathered from Prometheus, the views and the latest Storage Lab run, then
+  `ANALYST_MODEL` writes the three Section 5 parts as structured JSON. Any metric chip that is not an exact copy of a gathered fact
+  is dropped. Cached 30 minutes per hour-bucketed period; concurrent requests share one call. If the AI is off, over budget or
+  failing, the last written briefing is served (`cached: true`), else a plain version built straight from the facts.
+- **Analyst** (`POST /insights/ask`, SSE): bounded tool loop (6 calls) over `query_prometheus`, `query_view` (four aggregate
+  views, parameterised), `get_storage_lab_result` and `search_knowledge` (returns nothing until a corpus is plugged in via the
+  `KnowledgeSearch` interface; `ANALYST_KNOWLEDGE=corpus` enables the existing chunks). Tool output is capped at 3,500 characters.
+  System prompt and tool definitions carry `cache_control`. The question is scrubbed before it is sent. Any failure ends in the
+  cached briefing.
+- **Anomalies and hotspots** come from `insights.v_meter_anomaly_candidates` (leave-one-out z-score per meter and 15-minute slot,
+  stuck run, voltage below 207 V) and `insights.v_outage_by_county`. `meter_intervals` is empty today, so anomalies are `[]`; the
+  view was checked against synthetic rows in a rolled-back transaction. Outage uploads carry no county yet, so hotspots are per
+  region under "Not recorded".
+- **Guards:** every endpoint except the webhook verifies the JWT signature here (insights spends money, so it cannot lean on
+  filegrid-api). The Storage Lab routes did not: a forged `role: admin` payload could start a benchmark; fixed. `AI_MAX_CALLS_PER_HOUR`
+  (default 120) caps model calls across all three features. It is a loop guard, not billing: **set the spend limit in the Anthropic Console.**
+- **Settings:** `NARRATOR_MODEL`, `ANALYST_MODEL` (Haiku while building; `claude-sonnet-5-5` for the demo), `AI_MAX_CALLS_PER_HOUR`, with defaults
+  in `services/insights/compose.yml`.
+
+### Requests to other zones
+- **Zone B:** add `NARRATOR_MODEL`, `ANALYST_MODEL` and `AI_MAX_CALLS_PER_HOUR` to `.env.example` (compose already defaults them).
+- **Zone A:** `meter_intervals` is still empty (anomalies need it); outage uploads need a `county` (hotspots need it).

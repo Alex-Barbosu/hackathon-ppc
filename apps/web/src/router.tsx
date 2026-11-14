@@ -3,6 +3,7 @@ import { LoginPage } from "./features/auth/LoginPage";
 import { LibraryPage } from "./features/library/LibraryPage";
 import { UploadPage } from "./features/upload/UploadPage";
 import { Shell } from "./layout/Shell";
+import { InsightsPage } from "./features/insights/InsightsPage";
 import { LabPage } from "./features/lab/LabPage";
 import { OperationsPage } from "./features/operations/OperationsPage";
 import { useSession } from "./state/session";
@@ -22,6 +23,7 @@ const app = createRoute({
 const upload = createRoute({ getParentRoute: () => app, path: "/", component: UploadPage });
 const library = createRoute({ getParentRoute: () => app, path: "/library", component: LibraryPage });
 const operations = createRoute({ getParentRoute: () => app, path: "/operations", component: OperationsPage });
+const insights = createRoute({ getParentRoute: () => app, path: "/insights", component: InsightsPage });
 const lab = createRoute({ getParentRoute: () => app, path: "/lab", component: LabPage });
 // The chaos controls live in the Operations dock so the effect is visible next to the cause.
 const chaos = createRoute({
@@ -33,7 +35,7 @@ const chaos = createRoute({
 });
 
 export const router = createRouter({
-  routeTree: root.addChildren([login, app.addChildren([upload, library, operations, lab, chaos])]),
+  routeTree: root.addChildren([login, app.addChildren([upload, library, operations, lab, insights, chaos])]),
 });
 
 declare module "@tanstack/react-router" {
