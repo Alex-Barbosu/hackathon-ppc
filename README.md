@@ -37,7 +37,8 @@ printing the URLs:
 The browser warns about the certificate once, because TLS comes from Caddy's local CA.
 Run `make trust` and follow the printed command for your OS to trust it.
 
-**Check it works:** `make ps` shows every service `Up` (most say `healthy`). Open
+**Check it works:** `make ps` shows every service `Up (healthy)`, except `otel-collector`
+(no shell in its image; Prometheus watches it instead). Open
 https://localhost/grafana: in the **Smart meters** row, "sent" and "stored" climb at one
 reading per second. Try `make b-profile P=peak` and watch the rate jump tenfold within
 about 10 s. `make up` only returns once FileGrid itself reaches PostgreSQL, S3 and FTP.

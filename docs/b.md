@@ -606,6 +606,27 @@ Nothing to fix. Full check output:
 Postgres + S3 through Toxiproxy (#33) are on main, so those requests below are done. FTP
 through Toxiproxy still needs ten passive-port proxies on zone B's side (#33 explains it).
 
+## Healthchecks on every service (branch `zone-b/healthchecks`)
+
+Backlog item 1 asked for healthchecks on everything; six services had none, so
+`make up --wait` only proved they had started.
+
+| Service | Check | Why this one |
+| --- | --- | --- |
+| loki | `wget /ready` (3100) | 503 until the ingester joined its ring, plus 15 s; `start_period: 30s` |
+| tempo | `wget /ready` (3200) | same ingester wait |
+| alertmanager | `wget /-/ready` (9093) | |
+| mock-api | `wget /api/v1/health` (4010) | a real contract route, so healthy means the OpenAPI file parsed |
+| toxiproxy | `/toxiproxy-cli list` | scratch image, no shell; the CLI asks the API. Exit 1 against a dead port (checked) |
+| otel-collector | none | scratch image, no shell, no HTTP client. Prometheus scrapes it and `ServiceDown` fires within 30 s |
+
+Found on the way: Loki's and Tempo's `/ready` answered 503 after 4 hours up ("waiting for 15s
+after being ready"). The 15 s timer starts at the first `/ready` call, and nothing had called
+it. They answered `ready` 15 s later. So the check needs a start period, not a fix.
+
+`make reset && make up`: exit 0 in **42 s** (same as before), all 16 services with a check
+`healthy`, FileGrid reached the three storages 15 s later.
+
 ## Contract change proposals (for the humans to raise)
 
 - **JWT claims.** The contract names the roles but not the token. chaos-control and

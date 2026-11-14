@@ -107,6 +107,12 @@ services:
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.11.0
     command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    # Scratch image, no shell: its own CLI asks the API, which answers once the seed loaded.
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     ports:
       - "8443:8443"   # slow lane: https://localhost:8443 = the gateway through degradable network
     volumes:
@@ -122,6 +128,12 @@ services:
     volumes:
       - ../contracts:/contracts:ro
     networks: [app]
+    healthcheck:
+      # A real contract route: healthy means the OpenAPI file was parsed, not just a port open.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:4010/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     restart: unless-stopped
 
   # ------------------------------------------------------------------- load
@@ -163,6 +175,9 @@ services:
       - ./otel/config.yaml:/etc/otelcol/config.yaml:ro
     networks: [app]
     depends_on: [tempo, loki]
+    # No Docker healthcheck: the image is scratch (no shell, no HTTP client), so a check could
+    # only prove the binary exists. Prometheus scrapes it (job otel-collector) and ServiceDown
+    # fires within 30 s if it stops; make fresh-test checks every target is up.
     restart: unless-stopped
 
   prometheus:
@@ -190,6 +205,11 @@ services:
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:9093/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
   loki:
@@ -198,6 +218,14 @@ services:
     volumes:
       - loki-data:/loki
     networks: [app]
+    healthcheck:
+      # /ready answers 503 for 15 s after the ingester joins its ring (min_ready_duration),
+      # counted from the first /ready call, hence the start period.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3100/ready"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 30
     restart: unless-stopped
 
   tempo:
@@ -208,6 +236,13 @@ services:
       - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
     networks: [app]
+    healthcheck:
+      # Same 15 s ingester wait as Loki's.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3200/ready"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 30
     restart: unless-stopped
 
   grafana:
