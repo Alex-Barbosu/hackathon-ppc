@@ -202,6 +202,18 @@ class AuthWebTest {
     }
 
     @Test
+    void aMeterCategoryAtCapacityAnswers503WithRetryAfter() throws Exception {
+        when(meterService.ingest(any(), any(), any())).thenThrow(new ro.ppc.filegrid.resilience.BulkheadFullException(
+                ro.ppc.filegrid.domain.Category.METER, ro.ppc.filegrid.resilience.BulkheadFullException.Reason.QUEUE_FULL));
+
+        mvc.perform(post("/api/v1/meter-readings").header("Authorization", "Bearer device-secret-token")
+                        .header("Idempotency-Key", "k").contentType(MediaType.APPLICATION_JSON).content(METER_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "2"))
+                .andExpect(jsonPath("$.code").value("STORAGE_UNAVAILABLE"));
+    }
+
+    @Test
     void aMalformedMeterBodyIs400NotAServerError() throws Exception {
         mvc.perform(post("/api/v1/meter-readings").header("Authorization", "Bearer device-secret-token")
                         .header("Idempotency-Key", "k")

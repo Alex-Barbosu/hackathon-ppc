@@ -53,6 +53,8 @@ public class MeterController {
         MeterService.Ingested ingested;
         try {
             ingested = service.ingest(idempotencyKey, body, traceId);
+        } catch (ro.ppc.filegrid.resilience.BulkheadFullException e) {
+            throw e; // capacity, not a storage error: not counted against the database
         } catch (RuntimeException e) {
             // Neither the database nor the spool took it; the meter retries with the same key.
             metrics.recordOp(Category.METER, Storage.DB, FileGridMetrics.Op.WRITE,

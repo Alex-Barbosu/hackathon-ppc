@@ -61,6 +61,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "storage " + e.storage().slug() + " is unavailable");
     }
 
+    /** One category is full. 503 with Retry-After, which tus clients and the meter simulator retry on their own. */
+    @ExceptionHandler(ro.ppc.filegrid.resilience.BulkheadFullException.class)
+    public ResponseEntity<ApiError> onBulkheadFull(ro.ppc.filegrid.resilience.BulkheadFullException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "2")
+                .body(new ApiError(ApiError.Code.STORAGE_UNAVAILABLE.name(), e.getMessage(), traceId()));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> onIllegalArgument(IllegalArgumentException e) {
         return body(HttpStatus.BAD_REQUEST, ApiError.Code.BAD_REQUEST, e.getMessage());

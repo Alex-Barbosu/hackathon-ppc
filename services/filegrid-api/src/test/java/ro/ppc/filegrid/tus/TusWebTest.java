@@ -167,6 +167,20 @@ class TusWebTest {
     }
 
     @Test
+    void aCategoryAtCapacityAnswers503WithRetryAfterSoTheClientRetries() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(tus.append(eq(id), anyLong(), anyLong(), any())).thenThrow(new ro.ppc.filegrid.resilience.BulkheadFullException(
+                Category.VIDEO, ro.ppc.filegrid.resilience.BulkheadFullException.Reason.QUEUE_FULL));
+
+        mvc.perform(patch("/api/v1/files/tus/" + id).header("Authorization", bearer()).header("Tus-Resumable", "1.0.0")
+                        .header("Upload-Offset", "0").contentType(OFFSET).content(new byte[] {1}))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "2"))
+                .andExpect(jsonPath("$.code").value("STORAGE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("video")));
+    }
+
+    @Test
     void optionsAdvertisesTheCreationExtension() throws Exception {
         mvc.perform(options("/api/v1/files/tus").header("Authorization", bearer()))
                 .andExpect(status().isNoContent())

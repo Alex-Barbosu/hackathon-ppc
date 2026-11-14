@@ -71,7 +71,8 @@ class FileServiceIntegrityTest {
                     }
                 },
                 new ro.ppc.filegrid.resilience.StorageGuard(new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 10, 3, 50f, 10),
-                mock(ro.ppc.filegrid.spool.SpoolRepository.class));
+                mock(ro.ppc.filegrid.spool.SpoolRepository.class),
+                new ro.ppc.filegrid.resilience.Bulkheads(policy, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), java.time.Duration.ofSeconds(5)));
     }
 
     private void storedRowWithHashOf(byte[] bytesForHash) {

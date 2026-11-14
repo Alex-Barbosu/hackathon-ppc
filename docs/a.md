@@ -406,3 +406,62 @@ back, other replica, file edit, broken file, retry), `PolicyWebTest` (who may do
 - Only the policy values change at runtime. Worker pool and queue sizes do nothing yet: the per-category bulkheads (backlog item 12) are not built.
 - A policy that sends a category to a storage that is down is accepted; the circuit breaker and the fallback handle it.
 - Uploads already in flight finish under the policy they started with.
+
+## Per-category queue limits, bulkheads (branch `zone-a/bulkheads`)
+
+Backlog item 12. A storm in one category must not slow the others.
+
+### How it works
+
+- One limiter per category (`Bulkheads`). From the policy: `workers` writes run at once, `queue` more may wait, and anything
+  beyond that is refused at once with **`503` `STORAGE_UNAVAILABLE` and `Retry-After: 2`**, naming only that category. A
+  request that waits longer than 10 s (`filegrid.bulkhead.max-wait-seconds`) is refused the same way.
+- It counts **writes**: `POST /files`, `POST /meter-readings`, and each tus chunk. Reads are not limited: one long download of a
+  large video would hold one of video's 2 workers for minutes. tus creation is not limited (it is a quick call).
+- The sizes are read from the policy on every entry, so `PUT /policy` ("Apply policy") changes them for the next request, with no
+  restart. Changing `workers` upward lets waiting requests in at once.
+- `filegrid_queue_depth{category}` (the name in `contracts/metrics.md`) is the number waiting.
+- Waiting is cheap: requests run on virtual threads, and the limiter uses a lock and a condition, not `synchronized`, so a
+  waiter does not pin a carrier thread. What the limit protects is storage and memory: each running tus chunk holds one part
+  buffer, so a category's `workers` also bounds its upload memory.
+- A refusal is not a storage failure: it never counts against a circuit, never triggers a fallback, and a refused meter reading
+  is not parked (the meter retries it with the same key). The worker is given back even if the write fails.
+- The database pool is 32 connections (`hikari.maximum-pool-size`), enough for the default workers (16 + 8 + 4 + 2) plus
+  background jobs. A smaller pool would let one category's storm starve the others of connections and undo the isolation.
+  With several replicas, keep `32 x replicas` under Postgres' `max_connections`.
+- The refused request is **not** counted as `filegrid_ops_total{outcome="error"}`: that metric is per storage, and the storage
+  did nothing wrong. See "Proposed for the contract" below.
+
+### Proof (`make a-bulkhead-check`, through Caddy)
+
+The script lowers outage to 2 workers and a queue of 4 with `PUT /policy`, fires 4 waves of 80 simultaneous outage uploads, and
+at the same time sends meter readings and document uploads. It puts the limits back after.
+
+| Check | Result |
+| --- | --- |
+| 80 outage uploads at once, default limits (8 workers, queue 500) | 80 stored, 0 refused |
+| 320 outage uploads in waves, limits 2 / 4 | about 60 to 90 stored, the rest refused `503` with `Retry-After: 2`; nothing else went wrong |
+| `filegrid_queue_depth{outage}` | rises to the limit (4 or fewer), never above it; 0 again after |
+| `filegrid_queue_depth{meter}` and `{document}` | stayed 0 |
+| Meter readings during the storm | hundreds to thousands accepted, none refused; p95 11 to 15 ms alone, 14 to 34 ms during the storm |
+| Document uploads during the storm | all `201`, none refused |
+| Files stored during the storm | download identical |
+
+Honest reading of the meter latency: on this laptop the same burst under the generous default limits was not reliably worse
+(p95 5 to 26 ms in two runs, one run 181 ms), because small uploads do not saturate anything. So these numbers show that the others
+keep working at normal speed and that the storm is contained to its category, not that the limits made meters faster than
+they would have been. The isolation itself is structural (separate workers and queue) and is covered by the unit tests.
+
+For the demo: with the default limits a normal storm does not fill any queue. To show the queue depth rise, lower the
+category's `workers` and `queue` with "Apply policy" first, as the script does.
+
+### Proposed for the contract (not changed here)
+
+`filegrid_bulkhead_rejected_total{category}` (counter): writes refused because a category was at capacity. Today a refusal shows
+only as an HTTP 503 and a log line (at most one per category every 10 s). Zone B would need it for an "overload" alert. Raise it in
+`contracts/metrics.md` if wanted.
+
+Unit tests: 18 new (259 in all): concurrency never above the workers, queue and refusal, isolation between categories, wait
+timeout, worker given back on failure, live resize, queue of 0, interrupted waiter, a burst of 200; and at the service level
+(a full category is refused before any storage is touched, the others upload, tus chunk and meter reading) and HTTP level (`503`
+plus `Retry-After`).
