@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { FIELD } from "../../components/ui";
-import { REGIONS } from "../../lib/domain";
+import { Select } from "../../components/select/Select";
+import { REGION_OPTIONS, withAll } from "../../lib/options";
+import { ExportButton } from "../../components/ExportButton";
+import type { Column } from "../../lib/csv";
+import { REGIONS, type Anomaly } from "../../lib/domain";
 import { formatDateTime } from "../../lib/format";
 import { useAnomalies } from "./useInsights";
 
 const KIND: Record<string, string> = { consumption_drop: "Consumption drop", stuck_meter: "Stuck meter", voltage_sag: "Voltage sag", spike: "Spike" };
+const ANOMALY_COLUMNS: Column<Anomaly>[] = [
+  { header: "Meter", value: (a) => a.meterId }, { header: "Kind", value: (a) => KIND[a.kind] ?? a.kind },
+  { header: "Region", value: (a) => a.region }, { header: "County", value: (a) => a.county },
+  { header: "At", value: (a) => a.at }, { header: "Score", value: (a) => a.score }, { header: "Explanation", value: (a) => a.explanation },
+];
 type Region = (typeof REGIONS)[number]["id"] | "";
 
 export function AnomalyList() {
@@ -13,11 +21,11 @@ export function AnomalyList() {
   return (
     <section aria-label="Meter anomalies" className="overflow-hidden rounded-widget border-[0.8px] border-line bg-panel p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="label text-faint">Meter anomalies</h3>
-        <select aria-label="Region" className={`${FIELD} !w-auto`} value={region} onChange={(e) => setRegion(e.target.value as Region)}>
-          <option value="">All regions</option>
-          {REGIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <h3 className="label text-faint">Meter anomalies</h3>
+          <ExportButton name="meter-anomalies" rows={data} columns={ANOMALY_COLUMNS} />
+        </div>
+        <Select label="Region" hideLabel className="w-48" value={region} options={withAll("All regions", REGION_OPTIONS)} onChange={setRegion} />
       </div>
       {isPending && <div className="mt-4 h-24 animate-pulse rounded-xl bg-white/6" />}
       {isError && <p role="alert" className="mt-4 text-sm text-bad">Anomalies could not be read. Try again in a moment.</p>}

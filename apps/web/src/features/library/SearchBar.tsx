@@ -1,5 +1,6 @@
 import { FIELD, SecondaryButton } from "../../components/ui";
-import { COUNTIES, REGIONS, UPLOAD_CATEGORIES, type Category, type County, type Region } from "../../lib/domain";
+import { Select } from "../../components/select/Select";
+import { CATEGORY_OPTIONS, REGION_OPTIONS, countyOptions, withAll } from "../../lib/options";
 import { useFilters } from "./useFileSearch";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -20,25 +21,9 @@ export function SearchBar() {
           <input className={FIELD} type="search" value={filters.q} onChange={(e) => set({ q: e.target.value })} placeholder="e.g. Ploiești" />
         </Field>
       </div>
-      <Field label="Category">
-        <select className={FIELD} value={filters.category} onChange={(e) => set({ category: e.target.value as Category | "" })}>
-          <option value="">All</option>
-          {UPLOAD_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          <option value="meter">Meter reading</option>
-        </select>
-      </Field>
-      <Field label="Region">
-        <select className={FIELD} value={filters.region} onChange={(e) => set({ region: e.target.value as Region | "", county: "" })}>
-          <option value="">All</option>
-          {REGIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-        </select>
-      </Field>
-      <Field label="County">
-        <select className={FIELD} value={filters.county} onChange={(e) => set({ county: e.target.value as County | "" })}>
-          <option value="">All</option>
-          {COUNTIES.filter((c) => !filters.region || c.region === filters.region).map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}
-        </select>
-      </Field>
+      <Select label="Category" value={filters.category} options={withAll("All categories", CATEGORY_OPTIONS)} onChange={(v) => set({ category: v })} />
+      <Select label="Region" value={filters.region} options={withAll("All regions", REGION_OPTIONS)} onChange={(v) => set({ region: v, county: "" })} />
+      <Select label="County" value={filters.county} options={withAll("All counties", countyOptions(filters.region))} onChange={(v) => set({ county: v })} />
       <Field label="From"><input className={FIELD} type="date" value={filters.from} onChange={(e) => set({ from: e.target.value })} /></Field>
       <Field label="To"><input className={FIELD} type="date" value={filters.to} onChange={(e) => set({ to: e.target.value })} /></Field>
       <div className="sm:col-span-2 lg:col-span-7">

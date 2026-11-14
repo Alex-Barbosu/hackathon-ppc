@@ -11,8 +11,8 @@ export function BriefingCard() {
   return (
     <article aria-label="Briefing" className="space-y-6">
       {/* The headline finding sits on a landscape, like Origin's feature photo cards. */}
-      <TexturePanel texture="amber" className="flex min-h-[380px] items-end p-4 sm:p-8">
-        <Scrim texture="amber" className="max-w-2xl p-6 sm:p-8">
+      <TexturePanel texture="lines-dusk" className="flex min-h-[420px] items-end p-4 sm:p-8">
+        <Scrim texture="lines-dusk" className="max-w-2xl p-6 sm:p-8">
           <p className="label text-white/75">
             Briefing · {formatDateTime(data.generatedAt)}{data.cached ? " · last saved version" : ""}
           </p>

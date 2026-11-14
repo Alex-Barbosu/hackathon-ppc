@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FIELD, PrimaryButton, SecondaryButton } from "../../components/ui";
+import { Select } from "../../components/select/Select";
 import { useChaosAction } from "./useChaos";
 
 const CATS = ["meter", "outage", "document", "video"] as const;
@@ -14,9 +15,7 @@ export function LoadControls({ locked }: { locked: boolean }) {
       <fieldset className="space-y-2" disabled={locked}>
         <legend className="text-sm font-medium">Storm</legend>
         <div className="grid grid-cols-3 gap-2">
-          <select aria-label="Storm category" className={FIELD} value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
-            {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <Select label="Storm category" hideLabel value={category} disabled={locked} options={CATS.map((c) => ({ value: c, label: c }))} onChange={setCategory} />
           <input aria-label="Multiplier" type="number" min={1} max={50} className={`${FIELD} tabular-nums`} value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
           <input aria-label="Duration in seconds" type="number" min={10} max={1800} className={`${FIELD} tabular-nums`} value={durationSec} onChange={(e) => setDuration(Number(e.target.value))} />
         </div>

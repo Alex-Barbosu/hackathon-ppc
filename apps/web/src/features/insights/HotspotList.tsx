@@ -1,7 +1,14 @@
+import { ExportButton } from "../../components/ExportButton";
+import type { Column } from "../../lib/csv";
 import { formatDateTime } from "../../lib/format";
 import type { Hotspot } from "../../lib/domain";
 import { useHotspots } from "./useInsights";
 
+const HOTSPOT_COLUMNS: Column<Hotspot>[] = [
+  { header: "County", value: (h) => h.county }, { header: "Region", value: (h) => h.region },
+  { header: "Outage records", value: (h) => h.outages }, { header: "Total minutes", value: (h) => h.totalMinutes },
+  { header: "Last fault", value: (h) => h.lastFaultAt }, { header: "Top station", value: (h) => h.stations?.[0]?.station },
+];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function HotspotList() {
@@ -10,7 +17,10 @@ export function HotspotList() {
   const unrecorded = data?.some((h) => h.county === "Not recorded");
   return (
     <section aria-label="Outage hotspots" className="overflow-hidden rounded-widget border-[0.8px] border-line bg-panel p-6">
-      <h3 className="label text-faint">Outage hotspots</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="label text-faint">Outage hotspots</h3>
+        <ExportButton name="outage-hotspots" rows={data} columns={HOTSPOT_COLUMNS} />
+      </div>
       {isPending && <div className="mt-4 h-24 animate-pulse rounded-xl bg-white/6" />}
       {isError && <p role="alert" className="mt-4 text-sm text-bad">Hotspots could not be read. Try again in a moment.</p>}
       {data?.length === 0 && <p className="mt-4 text-sm text-muted">No outage records yet. Upload one on the Upload page and it is counted here.</p>}

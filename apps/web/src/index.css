@@ -68,6 +68,8 @@
 @utility tex-sky { background: #195f97 url("/textures/sky.webp") center / cover no-repeat; }
 @utility tex-field { background: #2a4d1c url("/textures/field.webp") center / cover no-repeat; }
 @utility tex-amber { background: #8a4a14 url("/textures/amber.webp") center / cover no-repeat; }
+@utility tex-lines-sky { background: #2a74b0 url("/textures/lines-sky.webp") center 70% / cover no-repeat; }
+@utility tex-lines-dusk { background: #8a3f2a url("/textures/lines-dusk.webp") center 70% / cover no-repeat; }
 @utility tex-forest { background: #1b3320 url("/textures/forest.webp") center / cover no-repeat; }
 
 @media (prefers-reduced-motion: reduce) {
