@@ -78,6 +78,9 @@ services:
   # ------------------------------------------------------- gateway and chaos
   caddy:
     image: caddy:2.9-alpine
+    # --watch reloads the Caddyfile when it changes (git pull, branch switch), because
+    # `make up` does not recreate the container for a config file change.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--watch"]
     ports:
       - "80:80"
       - "443:443"

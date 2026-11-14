@@ -15,6 +15,9 @@ b-load: ## Zone B: run a k6 scenario: make b-load S=baseline|storm-outage|video-
 	  -o experimental-prometheus-rw --tag testid=$(or $(S),baseline)-$$(date +%H%M%S) \
 	  $(foreach v,DURATION MULTIPLIER OUTAGE_PER_SEC OUTAGE_MB DOCUMENT_PER_SEC VIDEO_MB CHUNK_MB LOSS_PCT LATENCY_MS JITTER_MS BANDWIDTH_KBPS,$(if $($(v)),-e $(v)=$($(v)))) \
 	  $(or $(S),baseline).js
+.PHONY: b-dashboards
+b-dashboards: ## Zone B: regenerate Grafana dashboard JSON from infra/grafana/src (Grafana reloads it within 30 s)
+	docker run --rm -v "$(CURDIR)/infra/grafana:/g" -w /g node:22-alpine node src/overview.mjs
 .PHONY: b-rules
 b-rules: ## Zone B: check and unit-test the Prometheus alert rules (promtool, in Docker)
 	docker run --rm -v "$(CURDIR)/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml

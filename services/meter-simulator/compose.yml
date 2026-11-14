@@ -5,7 +5,7 @@ services:
   meter-simulator:
     build: .
     environment:
-      METER_TARGET_URL: ${METER_TARGET_URL:-http://filegrid-api:8080/api/v1/meter-readings}
+      METER_TARGET_URL: ${METER_TARGET_URL:-http://caddy:8088/api/v1/meter-readings}
       METER_DEVICE_TOKEN: ${METER_DEVICE_TOKEN:?run make up to generate .env}
       METER_COUNT: ${METER_COUNT:-500}
       READINGS_PER_SEC: ${METER_READINGS_PER_SEC:-1}

@@ -31,10 +31,15 @@ export const options = {
   },
   thresholds: {
     // Isolation: the bystander category stays fast and healthy whatever the storm does.
-    "http_req_failed{scenario:documents}": ["rate<0.01"],
+    // Request-level failures include the ones the client retried; the checks below count
+    // uploads that ended stored. 5 % tolerates the requests in flight on a removed replica.
+    "http_req_failed{scenario:documents}": ["rate<0.05"],
     "http_req_duration{scenario:documents,name:upload}": ["p(95)<3000"],
     // The storm itself must be absorbed, not dropped.
     "http_req_failed{scenario:storm}": ["rate<0.05"],
+    // Every upload ends stored (after client retries, if a replica went away).
+    "checks{check:outage upload 201}": ["rate>0.99"],
+    "checks{check:document upload 201}": ["rate>0.99"],
   },
 };
 
