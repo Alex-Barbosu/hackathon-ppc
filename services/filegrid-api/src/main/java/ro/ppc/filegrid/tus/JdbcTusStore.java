@@ -33,7 +33,8 @@ public class JdbcTusStore implements TusStore {
             rs.getString("trace_id"),
             instant(rs.getTimestamp("completed_at")),
             instant(rs.getTimestamp("created_at")),
-            instant(rs.getTimestamp("updated_at")));
+            instant(rs.getTimestamp("updated_at")),
+            rs.getString("county"));
 
     private final JdbcTemplate jdbc;
     private final FileRepository files;
@@ -48,11 +49,11 @@ public class JdbcTusStore implements TusStore {
     @Override
     public void insert(TusUpload u) {
         jdbc.update("INSERT INTO tus_uploads (id, category, region, original_name, content_type, "
-                        + "uploaded_by, bucket, object_key, s3_upload_id, upload_length, part_size, trace_id) "
-                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?)",
+                        + "uploaded_by, bucket, object_key, s3_upload_id, upload_length, part_size, trace_id, county) "
+                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?,?)",
                 u.id().toString(), u.category().slug(), u.region(), u.originalName(), u.contentType(),
                 u.uploadedBy(), u.bucket(), u.objectKey(), u.s3UploadId(), u.length(), u.partSize(),
-                u.traceId());
+                u.traceId(), u.county());
     }
 
     @Override

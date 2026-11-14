@@ -380,7 +380,7 @@ class FileServiceEncryptionAuditTest {
     }
 
     private void theDatabaseKnows(FileRow existing, byte[] bytes, String region) throws Exception {
-        when(repo.findDuplicate(eq("outage"), eq(sha256(bytes)), eq((long) bytes.length), eq(region)))
+        when(repo.findDuplicate(eq("outage"), eq(sha256(bytes)), eq((long) bytes.length), eq(region), org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(Optional.of(existing));
     }
 
@@ -433,7 +433,7 @@ class FileServiceEncryptionAuditTest {
     @Test
     void aFailedLookupJustStoresTheFile() throws Exception {
         byte[] bytes = document(3000);
-        when(repo.findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+        when(repo.findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any()))
                 .thenThrow(new IllegalStateException("database busy"));
 
         FileService.Stored stored = putOutage(bytes, "banat", null);
@@ -448,7 +448,7 @@ class FileServiceEncryptionAuditTest {
 
         putOutage(bytes, "banat", Storage.S3);
 
-        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any());
     }
 
     @Test
@@ -456,7 +456,7 @@ class FileServiceEncryptionAuditTest {
         upload(Category.DOCUMENT, document(3000), "connections");
         upload(Category.DOCUMENT, document(3000), "connections");
 
-        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        verify(repo, never()).findDuplicate(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any());
         assertThat(ftp.objects).hasSize(2);
     }
 

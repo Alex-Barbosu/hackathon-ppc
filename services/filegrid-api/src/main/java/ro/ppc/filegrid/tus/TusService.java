@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import ro.ppc.filegrid.common.ApiException;
 import ro.ppc.filegrid.common.Hashing;
 import ro.ppc.filegrid.domain.Category;
+import ro.ppc.filegrid.domain.County;
 import ro.ppc.filegrid.domain.Region;
 import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.files.FileRow;
@@ -106,6 +107,14 @@ public class TusService {
                 throw ApiException.badRequest("unknown region");
             }
         }
+        String county;
+        try {
+            County.Place place = County.resolve(region, blankToNull(metadata.get("county")));
+            region = place.region();
+            county = place.county();
+        } catch (IllegalArgumentException e) {
+            throw ApiException.badRequest(e.getMessage().startsWith("county ") ? e.getMessage() : "unknown county");
+        }
         int partSize = (cp.chunkMb() == null ? DEFAULT_PART_MB : cp.chunkMb()) * 1024 * 1024;
         UUID id = UUID.randomUUID();
         try (Spans.Scope route = spans.open("policy.route", category, cp.primaryStorage(), id, length)) {
@@ -121,7 +130,7 @@ public class TusService {
         try {
             store.insert(new TusUpload(id, category, region, blankToNull(metadata.get("filename")),
                     contentType, username, bucket, key, s3Id, length, partSize, 0, 0, traceId(),
-                    null, null, null));
+                    null, null, null, county));
         } catch (RuntimeException e) {
             quietly(() -> objects.abort(bucket, key, s3Id));
             throw e;
@@ -304,7 +313,7 @@ public class TusService {
 
         FileRow row = new FileRow(id, up.category().slug(), Storage.S3.slug(),
                 up.bucket() + "/" + up.objectKey(), up.length(), sha, up.contentType(),
-                up.originalName(), null, up.region(), null, up.uploadedBy(), false, "stored",
+                up.originalName(), null, up.region(), up.county(), up.uploadedBy(), false, "stored",
                 up.traceId(), null, null);
         store.complete(id, row, busyDelta);
         digests.drop(id);
