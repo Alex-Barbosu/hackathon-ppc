@@ -84,7 +84,9 @@ services:
     environment:
       FILEGRID_HOST: ${FILEGRID_HOST:-localhost}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The directory, not the file: a single-file bind mount pins the inode, so a
+      # `git switch` or editor save would leave Caddy on the old Caddyfile.
+      - ./caddy:/etc/caddy:ro
       - caddy-data:/data
       - caddy-config:/config
     networks: [edge, app]
@@ -115,6 +117,37 @@ services:
     networks: [app]
     restart: unless-stopped
 
+  # ------------------------------------------------------------------- load
+  # k6, started only on demand: `make b-load S=<scenario>` (profile "load", so `make up`
+  # never starts it). It joins the gateway's network namespace, so https://localhost is
+  # Caddy itself: TLS, routing and auth exactly as a browser sees them. Results are pushed
+  # to Prometheus (remote write) as k6_* metrics.
+  k6:
+    image: grafana/k6:0.57.0
+    profiles: [load]
+    network_mode: "service:caddy"
+    environment: &k6-env
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?run make up to generate .env}
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: "p(50),p(95),p(99),max"
+      K6_NO_USAGE_REPORT: "true"
+    volumes:
+      - ../loadtest:/scripts:ro
+    working_dir: /scripts
+  # Same, through the slow lane: https://localhost:8443 is Toxiproxy's client_slowlane, the
+  # path /chaos/network degrades. For lossy-link scenarios (video-lossy.js).
+  k6-slowlane:
+    image: grafana/k6:0.57.0
+    profiles: [load]
+    network_mode: "service:toxiproxy"
+    environment:
+      <<: *k6-env
+      BASE_URL: https://localhost:8443
+      # Chaos calls bypass the degraded lane, so healing the link cannot itself be lost.
+      CHAOS_URL: http://chaos-control:8090
+    volumes:
+      - ../loadtest:/scripts:ro
+    working_dir: /scripts
   # ------------------------------------------------------------ observability
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.1

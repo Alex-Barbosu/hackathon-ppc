@@ -8,6 +8,13 @@ b-test: ## Zone B: typecheck and test the simulator and chaos-control
 b-sim: ## Zone B: rebuild and restart the meter simulator
 	docker compose up -d --build --wait meter-simulator
 
+.PHONY: b-load
+b-load: ## Zone B: run a k6 scenario: make b-load S=baseline|storm-outage|video-lossy [DURATION=2m] [MULTIPLIER=10]
+	@test -f loadtest/$(or $(S),baseline).js || { echo "no loadtest/$(S).js"; exit 1; }
+	docker compose --profile load run --rm $(if $(filter video-lossy,$(S)),k6-slowlane,k6) run \
+	  -o experimental-prometheus-rw --tag testid=$(or $(S),baseline)-$$(date +%H%M%S) \
+	  $(foreach v,DURATION MULTIPLIER OUTAGE_PER_SEC OUTAGE_MB DOCUMENT_PER_SEC VIDEO_MB CHUNK_MB LOSS_PCT LATENCY_MS JITTER_MS BANDWIDTH_KBPS,$(if $($(v)),-e $(v)=$($(v)))) \
+	  $(or $(S),baseline).js
 .PHONY: b-rules
 b-rules: ## Zone B: check and unit-test the Prometheus alert rules (promtool, in Docker)
 	docker run --rm -v "$(CURDIR)/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml

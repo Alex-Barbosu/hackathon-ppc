@@ -69,6 +69,12 @@ curl -sk -H "$H" -X POST https://localhost/chaos/reset                          
 `client` network conditions apply to the slow lane, https://localhost:8443. Port 443 stays
 fast, so you can compare the two.
 
+### Load tests
+
+`make b-load S=baseline`, `S=storm-outage` or `S=video-lossy` runs a k6 scenario through
+the gateway; results land in Grafana (Overview → *Load tests (k6)*). Details:
+[loadtest/README.md](loadtest/README.md).
+
 If `make up` fails: `make logs s=<service>` shows why; a port already in use (another web
 server on 80/443) is the usual cause. `make reset && make up` starts over from scratch.
 
@@ -97,8 +103,9 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *Latency* and *Throughput and errors* rows (matrix table + time series) | dashboard ✅, data pending (A) |
 | Observability | One operation traceable request → storage | Simulator sends a W3C `traceparent` (one trace per reading, kept across retries); Tempo view in Grafana | partial, pending (A) |
 | Observability | Alert when a business guarantee is at risk | `POST /chaos/storages/db/stop`: `MeterReadingLossRisk` reaches the narrator in about 80 s, then `StorageDown{storage="db"}`; both resolve after `start`. `POST /chaos/corrupt` + download: `IntegrityFailure` in about 10 s. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ (narration pending, C) |
-| Scalability | 10x spike in one category does not degrade others | `POST /chaos/storm {"category":"outage","multiplier":10,"durationSec":120}`; Overview → *Meter write p95* stays flat while outage writes rise tenfold | ✅ (queue-depth panel pending, A) |
-| Scalability | Scale by adding instances | `make scale N=3`; throughput spreads over replicas | pending (A) |
+| Scalability | 10x spike in one category does not degrade others | `make b-load S=storm-outage` (outage ×10, 5 MB each, while documents keep their normal rate; k6 fails the run if documents slow down) or `POST /chaos/storm`; Overview → *Meter write p95* stays flat | ✅ (queue-depth panel pending, A) |
+| Scalability | Scale by adding instances | `make scale N=3`, then any load: Overview → *Operations per API replica* shows an even split (300 requests → 101/100/100). `docker kill` one replica under load: 0 failed requests | ✅ |
+| Scalability | Files > 1 GB with flat memory | `make b-load S=video-lossy VIDEO_MB=1100 LOSS_PCT=0 LATENCY_MS=0 JITTER_MS=0 BANDWIDTH_KBPS=0`: 1.1 GB uploaded and downloaded byte-identical; API memory stays far below the file size (`docker stats`) | ✅ |
 | Security | Storages unreachable from outside | `for p in 5432 8333 9333 21; do nc -z -w 2 localhost $p && echo "$p OPEN"; done` prints nothing; only Caddy (80/443) and Toxiproxy (8443) publish ports | ✅ |
 | Security | Authenticated access (chaos) | `curl -sk -o /dev/null -w "%{http_code}" https://localhost/chaos/state` → `401`; with `make b-token` → `200`; a non-admin JWT → `403` | ✅ |
 | Security | TLS from outside | `curl -sI http://localhost` → `301` to https; `curl -vk https://localhost` shows TLS 1.3 | ✅ |
@@ -107,6 +114,7 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | Resilience | Retries never duplicate meter readings | The simulator resends with the same `Idempotency-Key` and identical body (`make b-test`). After an outage, `docker compose exec postgres psql -U filegrid -d filegrid -c "select count(*), count(distinct (meter_id, period_start, seq)) from meter_readings"` shows equal numbers; Overview → *Meters*: "Accepted by FileGrid" tracks "Sent" | ✅ |
 | Resilience | Meter readings are never lost | `docker compose stop filegrid-api`: *Unacked now* grows; after `docker compose start filegrid-api` it drains to 0 and every generated reading is in `meter_readings`, also across a simulator restart | ✅ |
 | Resilience | One storage down does not stop others | `POST /chaos/storages/s3/stop`: documents (ftp) and meter readings (db) still succeed; outage should fall back to `db` | chaos ✅, outage fallback pending (A) |
+| Resilience | Transfers on lossy links finish or resume without manual action | `make b-load S=video-lossy`: 256 MB over 150 ms ± 50 ms and 20 % connection loss; every cut chunk resumes from the server offset, download byte-identical | ✅ |
 | Resilience | Corruption detected on retrieval | `POST /chaos/corrupt {"fileId": …}` flips one byte directly in S3, FTP or PostgreSQL; the next download returns `422 INTEGRITY_FAILED` and `verify` returns `ok: false` | ✅ |
 
 ## Architecture
