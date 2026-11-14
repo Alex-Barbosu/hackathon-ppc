@@ -50,6 +50,9 @@ http://{$FILEGRID_HOST} {
 		}
 	}
 
+	# /grafana without the slash would otherwise fall through to the web app's 404.
+	redir /grafana /grafana/ 308
+
 	handle /grafana/* {
 		reverse_proxy grafana:3000
 	}

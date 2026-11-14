@@ -2,9 +2,9 @@ import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema";
 import { getToken, useSession } from "../state/session";
 
-// "/mock" targets the Prism mock; set VITE_API_BASE="" to talk to the real gateway.
+// Default is the real gateway (same origin). Set VITE_API_BASE=/mock to work against the Prism mock.
 // `??` not `||`: an empty string is a legitimate value meaning "same origin, no prefix".
-export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/mock";
+export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "";
 
 export function authHeaders(): Record<string, string> {
   const token = getToken();

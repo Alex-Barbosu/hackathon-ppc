@@ -4,7 +4,7 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
 
 ## Web: Upload and Library (P0 item 1)
 
-- API base: `VITE_API_BASE` (default `/mock`, the Prism mock). Set `VITE_API_BASE=` (empty) to hit the real gateway.
+- API base: `VITE_API_BASE` (default empty = the real gateway, same origin). Set `VITE_API_BASE=/mock` to work against the Prism mock.
   Requests use `openapi-fetch` typed from `src/api/schema.d.ts`; the bearer token comes from `state/session.ts`
   (placeholder until the Login screen lands).
 - Upload: outage/document use multipart `POST /api/v1/files`; video uses Uppy + `@uppy/tus` with 16 MB chunks and
