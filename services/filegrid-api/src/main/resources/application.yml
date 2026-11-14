@@ -11,6 +11,11 @@ spring:
     password: ${PG_PASSWORD:}
   flyway:
     locations: classpath:db/migration
+  web:
+    resources:
+      # An API has no static files. With this on, a POST to an unknown route is a 405 from
+      # the resource handler instead of a 404, and a GET leaned on the 500 catch-all.
+      add-mappings: false
   servlet:
     multipart:
       # Outage/document cap at 20 MB in policy; leave headroom for multipart overhead.

@@ -37,8 +37,7 @@ routed by `config/policy.yaml`.
   (Timer, `publishPercentileHistogram`) → `filegrid_op_duration_seconds`, `filegrid.ops`
   (Counter) → `filegrid_ops_total`, with tags `category, storage, op, outcome`; plus
   `filegrid_bytes_total`, `filegrid_meter_readings_total`, `filegrid_integrity_failures_total`.
-- Auth is left open (next round) but seamed: `auth/AuthFilter` is a pass-through
-  `OncePerRequestFilter`; turning auth on is editing its `authenticate` method only.
+- Auth: see "Auth (branch `zone-a/auth`)" below.
 
 ### Design decisions
 
@@ -95,3 +94,49 @@ API's `/actuator/prometheus`.
 | 4. Byte-identical + provable | `DigestInputStream` in/out; `sha256` in receipt + `X-Content-SHA256`; 422 on mismatch + metric; `POST /verify` |
 | Observability (metric names) | `FileGridMetrics` registers `filegrid.op.duration`/`filegrid.ops` → `filegrid_*` |
 | Exactly-once meter readings | unique `(meter_id, period_start, seq)` + `ON CONFLICT DO NOTHING`, ack after commit, `filegrid_meter_readings_total{result}` |
+
+## Auth (branch `zone-a/auth`)
+
+Requested by zone C: login, download links, 404 for unknown routes, bearer enforced on `/files`.
+
+### What a caller can use
+
+| Credential | How it is sent | Reaches |
+| --- | --- | --- |
+| Session (JWT, HS256, 8 h) | `Authorization: Bearer <jwt>` from `POST /auth/login` | everything except `/meter-readings` (admin may use it too) |
+| Meter device token | `Authorization: Bearer <METER_DEVICE_TOKEN>` | only `POST /meter-readings` |
+| Download link token (60 s) | `?token=` on `GET /files/{id}/content` | that one file's content, once minted for it |
+| none | | `/health`, `/auth/login`, `/actuator/*` (internal) |
+
+- Demo users are `field`, `dispatch`, `connections`, `admin`; the username is the role and the
+  password is `DEMO_PASSWORD`. A wrong password or unknown user gives the same `401`.
+- `X-FileGrid-Force-Storage` is admin only (`403` otherwise), as the contract says.
+- A download token is an HMAC (key `JWT_SECRET`) over file id, username and expiry. It cannot be
+  used for another file, cannot mint another link, and cannot call `/verify`.
+- The filter decides on the servlet path, not the raw URI, so `/meter-readings/../files` with a
+  device token is still treated as `/files` and refused.
+- `JWT_SECRET` must be at least 32 characters or the API refuses to start. An empty
+  `DEMO_PASSWORD` or `METER_DEVICE_TOKEN` disables that credential; it never matches an empty value.
+- Errors: unknown route `404 NOT_FOUND`, wrong method `405`, bad JSON or bad id `400`, all in the
+  Error schema. Before this, they were `500`. `spring.web.resources.add-mappings=false` makes a POST
+  to an unknown route a 404 instead of a 405.
+- No token, password or download URL appears in logs (checked on the running stack).
+
+### Not done yet, on purpose
+
+- No per-category rules (for example documents only for `connections`). Every logged-in human can
+  read and write every category. Needs a decision from the team before it is enforced.
+- Document downloads are not written to the audit log yet (backlog item 10). The contract says every
+  download-link use is audited for documents.
+- Download still hashes the whole stored object before sending the first byte. For a 1 GB video that
+  is a long wait for headers. The single-pass path (contract: abort the connection on a late
+  mismatch) belongs with the tus work.
+- Login has no rate limit.
+
+### Verification
+
+`make a-test`: 50 tests pass (22 in `AuthWebTest`, which runs the real filter, controllers and error
+handler with storage mocked). Live on `make up`: no token `401`; bad password `401`; session `200`;
+device token on `/files` `403`; device token on `/meter-readings` `201`; session on
+`/meter-readings` `403`; unknown route `404`; download link streams the file with the same SHA-256
+and a link for another file is `401`.
