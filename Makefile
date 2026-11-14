@@ -48,7 +48,7 @@ scale: ## Run N replicas of the API behind the gateway: make scale N=3
 gen: ## Regenerate API clients from contracts/openapi.yaml
 	cd apps/web && npm run gen:api
 
-test: a-test b-test c-test ## Run every zone's tests
+test: a-test b-test b-rules c-test ## Run every zone's tests
 
 trust: ## Export Caddy's local root certificate so browsers trust https://localhost
 	@$(COMPOSE) cp caddy:/data/caddy/pki/authorities/local/root.crt ./filegrid-root.crt

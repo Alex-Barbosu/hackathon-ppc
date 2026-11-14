@@ -45,6 +45,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  alert-rules:
+    # Every alert in contracts/alerts.md fires on its signal and stays quiet on look-alikes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: promtool check + test
+        run: |
+          docker run --rm -v "$PWD/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/infra/prometheus:/etc/prometheus:ro" -w /etc/prometheus/tests --entrypoint promtool prom/prometheus:v3.1.0 test rules filegrid.test.yml
   api:
     runs-on: ubuntu-latest
     steps:

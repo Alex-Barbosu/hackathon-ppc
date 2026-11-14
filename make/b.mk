@@ -8,6 +8,10 @@ b-test: ## Zone B: typecheck and test the simulator and chaos-control
 b-sim: ## Zone B: rebuild and restart the meter simulator
 	docker compose up -d --build --wait meter-simulator
 
+.PHONY: b-rules
+b-rules: ## Zone B: check and unit-test the Prometheus alert rules (promtool, in Docker)
+	docker run --rm -v "$(CURDIR)/infra/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml
+	docker run --rm -v "$(CURDIR)/infra/prometheus:/etc/prometheus:ro" -w /etc/prometheus/tests --entrypoint promtool prom/prometheus:v3.1.0 test rules filegrid.test.yml
 b-chaos: ## Zone B: rebuild and restart chaos-control
 	docker compose up -d --build --wait chaos-control
 b-rate: ## Zone B: set meter readings per second live: make b-rate R=20
