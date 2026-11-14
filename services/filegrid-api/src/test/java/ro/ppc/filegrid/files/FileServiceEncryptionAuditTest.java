@@ -364,8 +364,69 @@ class FileServiceEncryptionAuditTest {
     // ------------------------------------------------------------------ test double
 
     /** A storage backend in memory; it records what it was told about each write. */
+    // ------------------------------------------------------------------ delete
+
+    @Test
+    void deletingADocumentRemovesTheBytesAndTheRowAndRecordsItInTheSameTransaction() throws Exception {
+        FileReceipt receipt = upload(Category.DOCUMENT, document(1000), "connections");
+        UUID id = UUID.fromString(receipt.id());
+        boolean[] auditedInTransaction = {false};
+        doAnswer(inv -> {
+            auditedInTransaction[0] = inTransaction;
+            return null;
+        }).when(audit).append(eq("admin"), eq("file.delete"), eq(id), any());
+
+        service.delete(id, "admin");
+
+        assertThat(ftp.objects).as("the stored bytes are gone").doesNotContainKey(savedRow.objectKey());
+        verify(repo).delete(id);
+        verify(audit).append(eq("admin"), eq("file.delete"), eq(id), any());
+        assertThat(auditedInTransaction[0]).as("the event commits with the row").isTrue();
+    }
+
+    @Test
+    void deletingAFileOfACategoryThatIsNotAuditedWritesNoEvent() throws Exception {
+        FileReceipt receipt = upload(Category.OUTAGE, document(1000), "field");
+        UUID id = UUID.fromString(receipt.id());
+
+        service.delete(id, "admin");
+
+        assertThat(s3.objects).doesNotContainKey(savedRow.objectKey());
+        verify(repo).delete(id);
+        verify(audit, never()).append(anyString(), eq("file.delete"), any(), any());
+    }
+
+    @Test
+    void anAuditFailureRefusesTheDelete() throws Exception {
+        FileReceipt receipt = upload(Category.DOCUMENT, document(1000), "connections");
+        UUID id = UUID.fromString(receipt.id());
+        doThrow(new IllegalStateException("audit down")).when(audit).append(anyString(), eq("file.delete"), any(), any());
+
+        assertThatThrownBy(() -> service.delete(id, "admin")).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void aStorageThatCannotBeReachedKeepsTheRowSoNothingIsOrphaned() throws Exception {
+        FileReceipt receipt = upload(Category.DOCUMENT, document(1000), "connections");
+        UUID id = UUID.fromString(receipt.id());
+        ftp.failDelete = true;
+
+        assertThatThrownBy(() -> service.delete(id, "admin")).isInstanceOf(ApiException.class);
+
+        verify(repo, never()).delete(id);
+        verify(audit, never()).append(anyString(), eq("file.delete"), any(), any());
+    }
+
+    @Test
+    void deletingAnUnknownFileIs404() {
+        savedRow = null;
+        assertThatThrownBy(() -> service.delete(UUID.randomUUID(), "admin")).isInstanceOf(ApiException.class);
+        verify(repo, never()).delete(any());
+    }
+
     private final class MemoryStorage implements StorageAdapter {
         final Map<String, byte[]> objects = new java.util.HashMap<>();
+        boolean failDelete;
         private final Storage kind;
 
         MemoryStorage(Storage kind) {
@@ -393,7 +454,10 @@ class FileServiceEncryptionAuditTest {
         }
 
         @Override
-        public void delete(String key) {
+        public void delete(String key) throws java.io.IOException {
+            if (failDelete) {
+                throw new java.io.IOException("storage unreachable");
+            }
             objects.remove(key);
         }
 

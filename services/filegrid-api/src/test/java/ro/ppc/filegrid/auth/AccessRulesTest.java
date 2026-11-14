@@ -66,4 +66,15 @@ class AccessRulesTest {
         assertThat(AccessRules.isPublic("/api/v1/auth/login/x")).isFalse();
         assertThat(AccessRules.isPublic("/api/v1/policy")).isFalse();
     }
+
+    @Test
+    void onlyAnAdminMayDeleteAFile() {
+        for (Role r : new Role[] {Role.FIELD, Role.DISPATCH, Role.CONNECTIONS, Role.METER_DEVICE, Role.DOWNLOAD_LINK}) {
+            assertThat(AccessRules.allowed(r, "DELETE", FILE)).as(r.name()).isFalse();
+            assertThat(AccessRules.allowed(r, "DELETE", FILE + "/")).as(r.name() + " with a slash").isFalse();
+        }
+        assertThat(AccessRules.allowed(Role.ADMIN, "DELETE", FILE)).isTrue();
+        // Reading a file stays open to the logged-in roles.
+        assertThat(AccessRules.allowed(Role.FIELD, "GET", FILE)).isTrue();
+    }
 }

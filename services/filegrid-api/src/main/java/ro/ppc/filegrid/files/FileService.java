@@ -528,6 +528,38 @@ public class FileService {
         return new DownloadStream(stream, row.sha256(), row.sizeBytes(), row.contentType());
     }
 
+    /**
+     * DELETE /files/{id}: removes the stored bytes from whichever storage holds them, then the row, and records
+     * {@code file.delete} where the category's policy audits. The row and its audit event commit together, so a
+     * failed audit leaves the file in place. If the storage cannot be reached the row stays (503), so no object is
+     * left behind with nothing pointing at it; the bytes' removal is safe to repeat.
+     */
+    public void delete(UUID id, String actor) {
+        FileRow row = metadata(id);
+        Category category = Category.fromSlug(row.category());
+        Storage storage = Storage.fromSlug(row.storage());
+        StorageAdapter adapter = storages.get(storage);
+
+        // A file still waiting in the spool has copies in the spool table: drop them first so no replay starts.
+        spoolItems.deleteByFile(id);
+        try {
+            guarded(adapter, () -> {
+                adapter.delete(row.objectKey());
+                return Boolean.TRUE;
+            });
+        } catch (StorageDownException e) {
+            throw ApiException.storageUnavailable("cannot reach " + storage.slug() + " to delete the file");
+        } catch (Exception e) {
+            log.warn("deleting the stored object failed file_id={} storage={}", id, storage.slug());
+            throw ApiException.storageUnavailable("deleting from " + storage.slug() + " failed");
+        }
+        tx.executeWithoutResult(status -> {
+            files.delete(id);
+            audit(row, actor, "file.delete", Map.of());
+        });
+        log.info("deleted file_id={} category={} storage={}", id, category.slug(), storage.slug());
+    }
+
     /** POST /files/{id}/verify: re-hash in place and compare, updating last_verified_at. */
     public VerifyResult verify(UUID id, String actor) {
         FileRow row = metadata(id);

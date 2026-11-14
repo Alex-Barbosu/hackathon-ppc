@@ -77,6 +77,11 @@ public class FileRepository {
                 storage, objectKey, status, id.toString());
     }
 
+    /** Removes the row. Its blob (db storage) and key material go with it. Audit rows are kept: they have no foreign key. */
+    public boolean delete(UUID id) {
+        return jdbc.update("DELETE FROM files WHERE id = ?::uuid", id.toString()) > 0;
+    }
+
     public void markVerified(UUID id) {
         jdbc.update("UPDATE files SET last_verified_at = now() WHERE id = ?::uuid", id.toString());
     }

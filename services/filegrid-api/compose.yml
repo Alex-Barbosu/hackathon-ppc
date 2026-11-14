@@ -3,13 +3,18 @@ services:
   filegrid-api:
     build: .
     environment:
-      PG_URL: jdbc:postgresql://postgres:5432/filegrid
+      # Postgres and S3 are reached through Toxiproxy (infra/toxiproxy/toxiproxy.json: pg, s3), so the /chaos/network
+      # demo slows or cuts them for real. Without the proxy: postgres:5432 and seaweedfs:8333.
+      PG_URL: jdbc:postgresql://toxiproxy:15432/filegrid
       PG_USER: filegrid
       PG_PASSWORD: ${POSTGRES_PASSWORD:?run make up to generate .env}
-      S3_ENDPOINT: http://seaweedfs:8333
+      S3_ENDPOINT: http://toxiproxy:18333
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?run make up to generate .env}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?run make up to generate .env}
-      FTP_HOST: ftp
+      # FTP goes direct by default. Through the proxy (FILEGRID_FTP_HOST=toxiproxy FILEGRID_FTP_PORT=12121 in .env)
+      # it only works once the proxy also forwards vsftpd's passive ports 30000-30009: see docs/a.md.
+      FTP_HOST: ${FILEGRID_FTP_HOST:-ftp}
+      FTP_PORT: ${FILEGRID_FTP_PORT:-21}
       FTP_USER: filegrid
       FTP_PASSWORD: ${FTP_PASSWORD:?run make up to generate .env}
       FILEGRID_MASTER_KEY: ${FILEGRID_MASTER_KEY:?run make up to generate .env}
@@ -24,6 +29,7 @@ services:
     networks: [app, data]
     depends_on:
       postgres: { condition: service_healthy }
+      toxiproxy: { condition: service_started }
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8080/api/v1/health"]
       interval: 5s

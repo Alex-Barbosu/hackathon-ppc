@@ -62,6 +62,11 @@ public class SpoolRepository {
                 + "WHERE id = ?", truncate(error), retryInSeconds, id);
     }
 
+    /** Drops every parked copy of one file, for when the file itself is deleted. */
+    public void deleteByFile(UUID fileId) {
+        jdbc.update("DELETE FROM spool_items WHERE file_id = ?::uuid", fileId.toString());
+    }
+
     public void delete(long id) {
         jdbc.update("DELETE FROM spool_items WHERE id = ?", id);
     }
