@@ -13,8 +13,10 @@ spring:
     locations: classpath:db/migration
   servlet:
     multipart:
-      max-file-size: 25MB
-      max-request-size: 26MB
+      # Outage/document cap at 20 MB in policy; leave headroom for multipart overhead.
+      # Video goes through the streaming tus endpoint (P1), not multipart.
+      max-file-size: 64MB
+      max-request-size: 65MB
 
 server:
   port: 8080
