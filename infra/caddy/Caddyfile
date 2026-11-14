@@ -19,14 +19,22 @@ http://{$FILEGRID_HOST} {
 	}
 
 	handle /api/* {
-		reverse_proxy filegrid-api:8080 {
-			# Load-balances across every replica of `docker compose up --scale filegrid-api=N`.
+		reverse_proxy {
+			# One upstream per replica, from Docker DNS (A records of the service name), so
+			# round robin spreads requests over every `make scale N=3` replica. A plain
+			# `filegrid-api:8080` upstream is a single target: each connection lands on
+			# whichever IP the resolver returns first and stays there via keep-alive.
+			dynamic a filegrid-api 8080 {
+				refresh 5s
+				versions ipv4
+			}
 			lb_policy round_robin
-			health_uri /api/v1/health
-			# Short interval: Caddy marks a replica unhealthy if its first probe runs before
-			# the API is up, and the default 30s interval left /api returning 503 after `make up`.
-			health_interval 3s
-			health_timeout 2s
+			# Active health checks do not run for dynamic upstreams. A replica that is still
+			# booting refuses the connection; Caddy then tries the next one (dial errors only,
+			# so a request body is never sent twice) and keeps it out for fail_duration.
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 15s
 			flush_interval -1
 			transport http {
 				read_timeout 30m

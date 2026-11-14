@@ -237,6 +237,52 @@ Evidence (14 Nov, live, chaos-control from #17):
 - Corrupt a document on ftp + download (422): `IntegrityFailure{category="document",
   storage="ftp"}` firing after 10 s and delivered to insights.
 
+## Load tests and scale-out (`loadtest/`, Caddy)
+
+### k6
+
+`make b-load S=<scenario>` runs `grafana/k6` in the gateway's network namespace (or
+Toxiproxy's for the slow lane), so https://localhost is Caddy: TLS, routing and login
+exactly as a browser sees them, with no host port or extra certificate. Compose profile
+`load`, so `make up` never starts k6. Results are pushed to Prometheus (`k6_*`, label
+`testid`) and shown in the Overview row *Load tests (k6)*. Scenario details:
+`loadtest/README.md`.
+
+Every upload is checked twice: the receipt's SHA-256 must equal the one k6 computed
+locally, and the downloaded bytes must hash to it again.
+
+### Scale-out: the gateway did not balance
+
+`make scale N=3` started three replicas, but Caddy's upstream `filegrid-api:8080` is a
+single target: it resolves one IP per connection and keep-alive pins it. Measured: 300
+sequential requests → 49 / 254 / 1 over the three replicas. Now the API route uses
+`dynamic a filegrid-api 8080` (refresh 5 s): one upstream per replica, round robin.
+Measured: **101 / 100 / 100**.
+
+Active health checks do not run for dynamic upstreams. Instead, a dial failure (a replica
+booting or killed) is retried on the next replica for up to 10 s (`lb_try_duration`) and the
+replica is skipped for 15 s (`fail_duration`). Only connection failures are retried, so a
+request body is never sent twice.
+
+Also fixed: Caddy's config was mounted as a single file, which pins the inode. After a
+`git switch` or an editor save, Caddy kept the old Caddyfile even after `caddy reload`.
+The whole `infra/caddy` directory is mounted now.
+
+### Evidence (14 Nov, branch `zone-b/k6-load`)
+
+- `baseline` 30 s: 121/121 checks, 0 failed requests, outage upload p95 0.37 s,
+  document p95 0.18 s.
+- `storm-outage` ×10 for 90 s at 10 meter readings/s: 180 storm uploads of 5 MB
+  (970 MB sent), 0 failures; documents 46 uploads, 0 failures, p95 0.10 s; meter p95
+  0.003 s mid-storm, 0.016 s after.
+- `video-lossy` 256 MB over 150 ms ± 50 ms and 20 % loss, one connection per chunk:
+  7 chunks cut, 5 resumes, finished in 89 s, download byte-identical;
+  `filegrid_upload_resumes_total{category="video"}` 1 → 6.
+- 1.1 GB video (no toxics): uploaded in 10.5 s, download byte-identical; peak API replica
+  memory 690 MiB (max heap 3.4 GiB), so the file never sat in memory.
+- 3 replicas, `docker kill` of one 15 s into a 45 s run at 2 uploads/s: 416/416 checks,
+  **0 of 232 requests failed**.
+
 ## Requests to other zones
 
 - **Zone A:** `meter_intervals` stays empty; `meter_readings` is filled. Zone C's anomaly
