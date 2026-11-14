@@ -2,6 +2,7 @@ package ro.ppc.filegrid.files;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -17,9 +18,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import ro.ppc.filegrid.audit.AuditLogService;
 import ro.ppc.filegrid.common.IntegrityException;
+import ro.ppc.filegrid.crypto.EnvelopeCrypto;
 import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
+import ro.ppc.filegrid.policy.CategoryPolicy;
 import ro.ppc.filegrid.policy.PolicyService;
 import ro.ppc.filegrid.storage.StorageAdapter;
 import ro.ppc.filegrid.storage.StorageRegistry;
@@ -50,13 +54,22 @@ class FileServiceIntegrityTest {
         storage = new FakeStorage();
 
         PolicyService policy = mock(PolicyService.class);
+        // A plain category: no encryption, no audit.
+        when(policy.policyFor(any())).thenReturn(
+                new CategoryPolicy("s3", "db", false, 20, "high", 8, 500, null, null));
         StorageRegistry storages = mock(StorageRegistry.class);
         when(storages.get(Storage.DB)).thenReturn(storage);
         ReceiptSigner signer = new ReceiptSigner("test-secret");
         Tracer tracer = mock(Tracer.class);
         when(tracer.currentSpan()).thenReturn(null);
 
-        service = new FileService(policy, storages, repo, metrics, signer, tracer);
+        service = new FileService(policy, storages, repo, metrics, signer, tracer,
+                new EnvelopeCrypto("ab".repeat(32)), mock(AuditLogService.class), new org.springframework.transaction.support.TransactionTemplate() {
+                    @Override
+                    public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
+                        return action.doInTransaction(null);
+                    }
+                });
     }
 
     private void storedRowWithHashOf(byte[] bytesForHash) {
@@ -73,7 +86,7 @@ class FileServiceIntegrityTest {
         storedRowWithHashOf(original);
         storage.setBytes(tampered);
 
-        assertThatThrownBy(() -> service.openForDownload(id))
+        assertThatThrownBy(() -> service.openForDownload(id, "tester"))
                 .isInstanceOf(IntegrityException.class);
 
         double failures = registry.get("filegrid.integrity.failures")
@@ -86,7 +99,7 @@ class FileServiceIntegrityTest {
         storedRowWithHashOf(original);
         storage.setBytes(tampered);
 
-        var result = service.verify(id);
+        var result = service.verify(id, "tester");
 
         assertThat(result.ok()).isFalse();
         assertThat(result.expected()).isEqualTo(sha256Hex(original));
@@ -98,7 +111,7 @@ class FileServiceIntegrityTest {
         storedRowWithHashOf(original);
         storage.setBytes(original);
 
-        var dl = service.openForDownload(id);
+        var dl = service.openForDownload(id, "tester");
         try (InputStream in = dl.stream()) {
             assertThat(in.readAllBytes()).isEqualTo(original);
         }

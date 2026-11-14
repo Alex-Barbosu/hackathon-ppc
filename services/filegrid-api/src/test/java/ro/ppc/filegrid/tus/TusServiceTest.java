@@ -299,6 +299,23 @@ class TusServiceTest {
     }
 
     @Test
+    void aCategoryThatNeedsEncryptionOrAuditCannotUseTusYet() {
+        // Accepting it would store the bytes in clear and unaudited, against the policy.
+        when(policy.policyFor(Category.OUTAGE)).thenReturn(
+                new CategoryPolicy("s3", "db", true, 20, "high", 8, 500, null, null));
+        when(policy.policyFor(Category.METER)).thenReturn(
+                new CategoryPolicy("s3", "db", false, 20, "high", 8, 500, true, null));
+
+        for (String category : new String[] {"outage", "meter"}) {
+            assertThatThrownBy(() -> tus.create(1000, Map.of("category", category), "u"))
+                    .isInstanceOfSatisfying(ApiException.class, e -> {
+                        assertThat(e.status().value()).isEqualTo(400);
+                        assertThat(e.getMessage()).contains("encryption or auditing");
+                    });
+        }
+    }
+
+    @Test
     void creationRejectsBadInput() {
         assertThatThrownBy(() -> tus.create(1000, Map.of(), "u")).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> tus.create(1000, Map.of("category", "nope"), "u")).isInstanceOf(ApiException.class);
