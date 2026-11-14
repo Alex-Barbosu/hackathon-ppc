@@ -140,3 +140,57 @@ handler with storage mocked). Live on `make up`: no token `401`; bad password `4
 device token on `/files` `403`; device token on `/meter-readings` `201`; session on
 `/meter-readings` `403`; unknown route `404`; download link streams the file with the same SHA-256
 and a link for another file is `401`.
+
+## Resumable video upload, tus (branch `zone-a/tus-video-upload`)
+
+Backlog item 7. `POST /api/v1/files/tus`, `HEAD` and `PATCH /api/v1/files/tus/{id}`, tus 1.0.0 core plus
+the creation extension, at the paths in `contracts/openapi.yaml`. Same bearer token as the rest of the API.
+
+### How it works
+
+- Each chunk is read from the socket into a buffer of one part (policy `chunkMb`, 16 MB for video) and sent to
+  S3 as one multipart part. Memory per upload is one part, whatever the file size.
+- The client may count on `Upload-Offset` bytes. Every byte below it is durable: in a finished S3 part, or in a
+  small leftover object (`.tus/<id>.tail` in the same bucket) for bytes that have not filled a part yet. No
+  file bytes are ever written to Postgres.
+- State is in Postgres (`tus_uploads`, `tus_parts`, migration `V101`), so any API replica can take the next chunk.
+  The offset moves by compare-and-set, so two requests racing on one upload cannot both win (`409`).
+- A dropped connection keeps what had arrived: the offset after a drop is exactly the bytes received.
+- SHA-256 is computed while the bytes stream in. If the chunks of one upload were not all handled by the same
+  instance, the running digest does not exist there, so the finished object is read back once to hash it.
+- On the last chunk the object is completed in S3, its size is checked against `Upload-Length`, and the `files`
+  row and the completion mark are written in one transaction. The last response carries `X-FileGrid-File-Id`.
+- Uploads idle for 24 h are aborted in S3 and deleted (hourly job), so abandoned uploads leave no orphan parts.
+- `filegrid_upload_resumes_total{category}` counts a `HEAD` on an upload that already has bytes (a resume).
+  Heap is visible as `jvm_memory_used_bytes{area="heap"}` on `/actuator/prometheus`.
+
+### Rules and limits
+
+- Only categories whose policy primary is `s3` can use tus (video, outage). Others get `400` and use `POST /files`.
+  The contract says any category is allowed; this follows the policy so a document is never routed around its
+  FTP rule. If the team wants tus for every category, that needs the db/ftp adapters to accept streams of unknown
+  length.
+- `Upload-Length` is required (no defer-length). Over the policy `maxSizeMb` gives `413`.
+- No termination (`DELETE`) extension: it is not in the contract. Abandoned uploads expire instead.
+- No per-category limit on concurrent uploads yet (backlog item 12). Each active chunk holds one 16 MB buffer.
+
+### Proof (`make a-tus-check`, macOS, through Caddy)
+
+| Check | Result |
+| --- | --- |
+| 1 GiB upload, connection dropped 6 MB into chunk 20 | server offset = chunk start + 6,000,000 (every received byte kept); upload finishes |
+| SHA-256 of what was sent / receipt / downloaded bytes / `X-Content-SHA256` | all equal (`03ac97c0036e52c4...`) |
+| `POST /verify` | `ok: true` |
+| API heap capped at 160 MiB (`-Xmx160m`), same 1 GiB upload and download | passes, peak sampled heap 138 MiB, no `OutOfMemoryError` |
+| Default heap | peak sampled 230 MiB (uncollected garbage; the capped run is the real bound) |
+| `filegrid_upload_resumes_total{category="video"}` | 1 |
+| No token / no `Tus-Resumable` / document category / unknown upload | `401` / `412` / `400` / `404` |
+
+Unit tests: 31 new (83 in all). `TusServiceTest` runs the real upload logic on in-memory Postgres and S3 stand-ins
+(the fake S3 rejects non-last parts under 5 MB, like the real one) with awkward chunk sizes, a dropped link, a
+second replica taking over, a lost leftover, an S3 outage and expiry.
+
+### Known edge
+
+If S3 finishes the multipart upload and the database write that follows fails, the client's retry cannot complete
+(S3 no longer has the upload). It needs a manual check of the object. Rare; not handled yet.
