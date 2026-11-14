@@ -1,0 +1,67 @@
+# Zone B. The only door into FileGrid. TLS via Caddy's local CA (run `make trust`).
+{
+	admin 127.0.0.1:2019
+}
+
+http://{$FILEGRID_HOST} {
+	redir https://{host}{uri} permanent
+}
+
+# Also serves the Toxiproxy slow lane (https://localhost:8443 → toxiproxy → caddy:443).
+{$FILEGRID_HOST} {
+	tls internal
+
+	encode zstd gzip
+
+	# Large uploads are streamed, never buffered (videos are 1 GB+).
+	request_body {
+		max_size 6GB
+	}
+
+	handle /api/* {
+		reverse_proxy filegrid-api:8080 {
+			# Load-balances across every replica of `docker compose up --scale filegrid-api=N`.
+			lb_policy round_robin
+			health_uri /api/v1/health
+			flush_interval -1
+			transport http {
+				read_timeout 30m
+				write_timeout 30m
+			}
+		}
+	}
+
+	handle /chaos/* {
+		reverse_proxy chaos-control:8090
+	}
+
+	handle /insights/alerts {
+		# Alertmanager webhook is internal only.
+		respond "Not found" 404
+	}
+
+	handle /insights/* {
+		reverse_proxy insights:8070 {
+			flush_interval -1
+		}
+	}
+
+	handle /grafana/* {
+		reverse_proxy grafana:3000
+	}
+
+	handle_path /mock/* {
+		reverse_proxy mock-api:4010
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

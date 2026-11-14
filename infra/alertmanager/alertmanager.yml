@@ -1,0 +1,14 @@
+# Zone B. Every alert goes to the zone C narrator. Add a team chat receiver
+# (Discord/Slack webhook from .env) in zone B's backlog.
+route:
+  receiver: insights
+  group_by: [alertname, category, storage]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 30m
+
+receivers:
+  - name: insights
+    webhook_configs:
+      - url: http://insights:8070/insights/alerts
+        send_resolved: true

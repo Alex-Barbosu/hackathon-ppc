@@ -1,0 +1,216 @@
+# Zone B. Storages, gateway, chaos proxy, mock API and observability.
+# Rule: only caddy (80/443) and toxiproxy's slow lane (8443) publish ports.
+# Everything else is reachable only by service name on the internal networks.
+
+networks:
+  edge: {}            # public side: gateway + slow lane
+  app: {}             # services, observability
+  data:
+    internal: true    # storages; no route to or from the outside world
+
+volumes:
+  pg-data: {}
+  seaweed-data: {}
+  ftp-data: {}
+  caddy-data: {}
+  caddy-config: {}
+  prometheus-data: {}
+  loki-data: {}
+  tempo-data: {}
+  grafana-data: {}
+
+services:
+  # ---------------------------------------------------------------- storages
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: filegrid
+      POSTGRES_USER: filegrid
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make up to generate .env}
+      INSIGHTS_DB_PASSWORD: ${INSIGHTS_DB_PASSWORD:?run make up to generate .env}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filegrid -d filegrid"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    entrypoint: ["/bin/sh", "/etc/seaweedfs/start.sh"]
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?run make up to generate .env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?run make up to generate .env}
+    volumes:
+      - seaweed-data:/data
+      - ./seaweedfs/start.sh:/etc/seaweedfs/start.sh:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null && wget -qO /dev/null http://127.0.0.1:8333/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  seaweedfs-init:
+    # One-shot: creates the buckets FileGrid expects, then exits.
+    image: chrislusf/seaweedfs:3.80
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for b in filegrid-outage filegrid-video filegrid-document filegrid-meter; do
+          echo "s3.bucket.create -name $$b" | weed shell -master=seaweedfs:9333 || true
+        done
+        echo buckets ready
+    depends_on:
+      seaweedfs: { condition: service_healthy }
+    networks: [data]
+    restart: "no"
+
+  ftp:
+    image: stilliard/pure-ftpd:hardened
+    environment:
+      PUBLICHOST: ftp
+      FTP_USER_NAME: filegrid
+      FTP_USER_PASS: ${FTP_PASSWORD:?run make up to generate .env}
+      FTP_USER_HOME: /home/ftpusers/filegrid
+      FTP_PASSIVE_PORTS: "30000:30009"
+      FTP_MAX_CLIENTS: "50"
+      FTP_MAX_CONNECTIONS: "50"
+      # --tls=2 refuses plain-text logins: credentials and files travel over FTPS only.
+      ADDED_FLAGS: "--tls=2"
+      TLS_CN: ftp
+      TLS_ORG: FileGrid
+      TLS_C: RO
+    volumes:
+      - ftp-data:/home/ftpusers
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/21'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ------------------------------------------------------- gateway and chaos
+  caddy:
+    image: caddy:2.9-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FILEGRID_HOST: ${FILEGRID_HOST:-localhost}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge, app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    ports:
+      - "8443:8443"   # slow lane: https://localhost:8443 = the gateway through degradable network
+    volumes:
+      - ./toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    networks: [edge, app, data]
+    restart: unless-stopped
+
+  mock-api:
+    # Prism mock of contracts/openapi.yaml, served at https://<host>/mock/...
+    image: stoplight/prism:5.15.10
+    # -m false: the multi-process mode crashes on the Node 24 base image.
+    command: ["mock", "-h", "0.0.0.0", "-p", "4010", "-m", "false", "--dynamic=false", "/contracts/openapi.yaml"]
+    volumes:
+      - ../contracts:/contracts:ro
+    networks: [app]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------ observability
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/config.yaml:/etc/otelcol/config.yaml:ro
+    networks: [app]
+    depends_on: [tempo, loki]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks: [app]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+    networks: [app]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    user: "0"   # writes to a named volume; the image's default user cannot
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks: [app]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run make up to generate .env}
+      GF_SERVER_ROOT_URL: https://${FILEGRID_HOST:-localhost}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceToLogs
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks: [app]
+    depends_on: [prometheus, loki, tempo]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped

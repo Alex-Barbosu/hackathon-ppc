@@ -1,0 +1,36 @@
+# Zone ownership. The zone guard in CI (scripts/zone-guard.mjs) reads this file:
+# a PR may touch only one zone, unless it carries the `contracts` or `base` label.
+# Last matching pattern wins (GitHub semantics).
+
+*                              @Alex-Barbosu @CalinCodes @RORO123b
+
+# Shared: every change needs all three approvals
+/contracts/                    @Alex-Barbosu @CalinCodes @RORO123b
+/compose.yml                   @Alex-Barbosu @CalinCodes @RORO123b
+/CODEOWNERS                    @Alex-Barbosu @CalinCodes @RORO123b
+/CLAUDE.md                     @Alex-Barbosu @CalinCodes @RORO123b
+
+# Zone A: ingest core
+/services/filegrid-api/        @CalinCodes
+/config/                       @CalinCodes
+/make/a.mk                     @CalinCodes
+/docs/a.md                     @CalinCodes
+
+# Zone B: platform and reliability
+/infra/                        @RORO123b
+/services/meter-simulator/     @RORO123b
+/services/chaos-control/       @RORO123b
+/loadtest/                     @RORO123b
+/scripts/                      @RORO123b
+/.github/                      @RORO123b
+/Makefile                      @RORO123b
+/.env.example                  @RORO123b
+/README.md                     @RORO123b
+/make/b.mk                     @RORO123b
+/docs/b.md                     @RORO123b
+
+# Zone C: experience and intelligence
+/apps/web/                     @Alex-Barbosu
+/services/insights/            @Alex-Barbosu
+/make/c.mk                     @Alex-Barbosu
+/docs/c.md                     @Alex-Barbosu

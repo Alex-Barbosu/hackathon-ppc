@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://filegrid.local/contracts/policy.schema.json",
+  "title": "FileGrid storage policy",
+  "description": "Per-category routing. config/policy.yaml must validate against this. Changing it never requires a code change.",
+  "type": "object",
+  "required": ["version", "categories"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "categories": {
+      "type": "object",
+      "required": ["meter", "outage", "document", "video"],
+      "additionalProperties": false,
+      "properties": {
+        "meter": { "$ref": "#/$defs/categoryPolicy" },
+        "outage": { "$ref": "#/$defs/categoryPolicy" },
+        "document": { "$ref": "#/$defs/categoryPolicy" },
+        "video": { "$ref": "#/$defs/categoryPolicy" }
+      }
+    }
+  },
+  "$defs": {
+    "categoryPolicy": {
+      "type": "object",
+      "required": ["primary", "fallback", "encrypt", "maxSizeMb", "priority", "workers", "queue"],
+      "additionalProperties": false,
+      "properties": {
+        "primary": { "enum": ["db", "s3", "ftp"], "description": "Where the file is written first." },
+        "fallback": { "enum": ["db", "s3", "ftp", "spool"], "description": "Used when the primary's circuit is open. spool = durable local volume, replayed later." },
+        "encrypt": { "type": "boolean", "description": "AES-256-GCM envelope encryption before the bytes reach storage." },
+        "maxSizeMb": { "type": "integer", "minimum": 1 },
+        "priority": { "enum": ["high", "normal", "low"] },
+        "workers": { "type": "integer", "minimum": 1, "maximum": 256, "description": "Bulkhead worker pool size." },
+        "queue": { "type": "integer", "minimum": 1, "description": "Bulkhead queue capacity; full = 503 for this category only." },
+        "audit": { "type": "boolean", "default": false, "description": "Write every access to the hash-chained audit log." },
+        "chunkMb": { "type": "integer", "minimum": 5, "description": "Multipart part size for large uploads." }
+      }
+    }
+  }
+}

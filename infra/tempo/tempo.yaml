@@ -1,0 +1,20 @@
+# Zone B. Single-binary Tempo with local storage. Enough for a 24 h demo.
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc: { endpoint: 0.0.0.0:4317 }
+        http: { endpoint: 0.0.0.0:4318 }
+
+storage:
+  trace:
+    backend: local
+    wal: { path: /var/tempo/wal }
+    local: { path: /var/tempo/blocks }
+
+metrics_generator:
+  storage:
+    path: /var/tempo/generator/wal

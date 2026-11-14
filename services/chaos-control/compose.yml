@@ -1,0 +1,16 @@
+# Zone B. The ONLY service that will get the Docker socket (allowlisted container names),
+# added when zone B implements stop/start. Never mount it anywhere else.
+services:
+  chaos-control:
+    build: .
+    environment:
+      TOXIPROXY_URL: http://toxiproxy:8474
+      JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-filegrid}
+    networks: [app, data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped

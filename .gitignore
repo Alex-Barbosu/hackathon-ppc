@@ -1,0 +1,11 @@
+.env
+*.env.local
+filegrid-root.crt
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+*.log
