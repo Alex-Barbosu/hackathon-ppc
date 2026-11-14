@@ -65,7 +65,11 @@ export function useTusUpload(region: Region) {
         ...(resumed ? { resumedAfterDisconnect: true, message: null } : {}),
       });
     });
-    uppy.on("upload-error", (_f, err) => patch({ phase: "failed", message: err.message }));
+    uppy.on("upload-error", (_f, err) => {
+      // The raw tus error carries request internals; keep it for the console, say the useful part here.
+      console.error("tus upload failed:", err.message);
+      patch({ phase: "failed", message: "The upload stopped before it finished, so the video is not stored yet." });
+    });
     uppy.on("upload-success", async () => {
       const id = fileIdHeader.current;
       if (!id) return patch({ phase: "done", percent: 100, message: "Stored. Open the Library to see the receipt." });

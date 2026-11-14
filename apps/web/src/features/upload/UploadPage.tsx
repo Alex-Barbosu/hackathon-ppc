@@ -38,7 +38,7 @@ export function UploadPage() {
         <PrimaryButton disabled={!file || busy} onClick={submit}>
           {multipart.isPending ? "Uploading…" : "Upload record"}
         </PrimaryButton>
-        {multipart.isError && <p role="alert" className="text-sm text-bad">{multipart.error.message} Your file is still on your device; try again.</p>}
+        {multipart.isError && <p role="alert" className="text-sm text-bad">{multipart.error.message}</p>}
         {isVideo && tus.state.phase !== "idle" && <TusProgress state={tus.state} onToggle={tus.toggle} />}
         {isVideo && tus.state.phase === "done" && !receipt && <p className="text-sm text-good">{tus.state.message}</p>}
         {receipt && <ReceiptCard receipt={receipt} />}
