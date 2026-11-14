@@ -1,31 +1,33 @@
-// Zone B placeholder. Returns a static ChaosState (contracts/openapi.yaml) so the UI can
-// wire the chaos panel. Real actions (Docker stop/start via an allowlist, Toxiproxy
-// toxics, byte corruption, storms, meter rate) are zone B's backlog.
-import Fastify from "fastify";
-import { Registry, collectDefaultMetrics } from "prom-client";
+// chaos-control: the demo's chaos buttons (contracts/openapi.yaml /chaos/*), admin only.
+// The only container with the Docker socket; it uses it for the three storage containers
+// of its own Compose project and nothing else.
+import { hostname } from "node:os";
+import { buildApp } from "./app.js";
+import { DockerClient } from "./docker.js";
+import { SimulatorClient } from "./meters.js";
+import { SeaweedFiler, Storages } from "./storages.js";
+import { ToxiproxyClient } from "./toxiproxy.js";
 
-const port = Number(process.env.PORT ?? 8090);
-const registry = new Registry();
-collectDefaultMetrics({ register: registry });
+const env = process.env;
+const jwtSecret = env.JWT_SECRET ?? "";
+// Same rule as filegrid-api: refuse to verify tokens with an empty or guessable key.
+if (jwtSecret.length < 32) throw new Error("JWT_SECRET must be set to at least 32 characters");
 
-type StorageState = "running" | "stopped";
-interface ChaosState {
-  storages: Record<"db" | "s3" | "ftp", StorageState>;
-  network: unknown[];
-  meters: { readingsPerSec: number };
-  log: { at: string; action: string }[];
-}
+const docker = new DockerClient(env.DOCKER_SOCKET ?? "/var/run/docker.sock", env.COMPOSE_PROJECT_NAME ?? "filegrid", hostname());
+const { app } = buildApp({
+  jwtSecret,
+  storages: new Storages(docker, new SeaweedFiler(env.SEAWEED_FILER_URL ?? "http://seaweedfs:8888")),
+  toxiproxy: new ToxiproxyClient(env.TOXIPROXY_URL ?? "http://toxiproxy:8474"),
+  meters: new SimulatorClient(env.METER_SIMULATOR_URL ?? "http://meter-simulator:9100"),
+  defaultReadingsPerSec: Number(env.METER_READINGS_PER_SEC ?? 1),
+  apiUrl: env.FILEGRID_FILES_URL ?? "http://filegrid-api:8080/api/v1/files",
+});
 
-const state: ChaosState = {
-  storages: { db: "running", s3: "running", ftp: "running" },
-  network: [],
-  meters: { readingsPerSec: 1 },
-  log: [],
+await app.listen({ host: "0.0.0.0", port: Number(env.PORT ?? 8090) });
+
+const shutdown = async (): Promise<void> => {
+  await app.close();
+  process.exit(0);
 };
-
-const app = Fastify({ logger: true });
-app.get("/health", async () => ({ status: "up", service: "chaos-control", version: "0.1.0" }));
-app.get("/metrics", async (_req, reply) => reply.type(registry.contentType).send(await registry.metrics()));
-app.get("/chaos/state", async () => state);
-
-await app.listen({ host: "0.0.0.0", port });
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());
