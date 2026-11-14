@@ -29,7 +29,7 @@ export function TusProgress({ state, onToggle }: TusProgressProps) {
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {active && <SecondaryButton onClick={onToggle}>{paused ? "Resume upload" : "Pause upload"}</SecondaryButton>}
         {state.phase === "waiting" && <p className="text-sm text-warn">{state.message}</p>}
-        {state.phase === "failed" && <p className="text-sm text-bad">{state.message} Your progress is kept; press Resume to continue.</p>}
+        {state.phase === "failed" && <p className="text-sm text-bad">{state.message} Uploaded bytes are kept where the server confirmed them; press Resume to try again.</p>}
         {state.resumedAfterDisconnect && state.phase !== "waiting" && (
           <span className="rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">Resumed after disconnect</span>
         )}
