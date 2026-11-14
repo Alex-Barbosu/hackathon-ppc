@@ -81,6 +81,12 @@ paths:
               properties:
                 category: { $ref: "#/components/schemas/Category" }
                 region: { $ref: "#/components/schemas/Region" }
+                county:
+                  allOf: [{ $ref: "#/components/schemas/County" }]
+                  description: |
+                    Where the outage happened (outage records; accepted for any category). When `region` is
+                    also given it must be the county's region, else 400; when `region` is omitted it is
+                    taken from the county.
                 description: { type: string, maxLength: 500 }
                 file: { type: string, format: binary }
       responses:
@@ -100,6 +106,7 @@ paths:
         - { name: category, in: query, schema: { $ref: "#/components/schemas/Category" } }
         - { name: q, in: query, schema: { type: string }, description: Free text over name and description }
         - { name: region, in: query, schema: { $ref: "#/components/schemas/Region" } }
+        - { name: county, in: query, schema: { $ref: "#/components/schemas/County" } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
         - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
@@ -118,7 +125,7 @@ paths:
       summary: Create a tus 1.0 resumable upload (videos; any category allowed)
       description: |
         Standard tus 1.0.0 creation. `Upload-Metadata` must carry base64 `category` and
-        `filename`; optional `region`. Follow-up `PATCH`/`HEAD` go to the returned Location.
+        `filename`; optional `region` and `county` (same rules as `POST /files`). Follow-up `PATCH`/`HEAD` go to the returned Location.
       parameters:
         - { name: Tus-Resumable, in: header, required: true, schema: { type: string, const: "1.0.0" } }
         - { name: Upload-Length, in: header, required: true, schema: { type: integer } }
@@ -561,7 +568,7 @@ paths:
     get:
       operationId: listOutageHotspots
       tags: [insights]
-      summary: Outage counts per county
+      summary: Outage counts per county, with the stations behind them
       responses:
         "200":
           description: Hotspots
@@ -662,6 +669,38 @@ components:
       type: string
       enum: [muntenia, banat, dobrogea]
 
+    County:
+      type: string
+      description: |
+        Counties served by the three regions, each in exactly one region. muntenia: București, Ilfov,
+        Giurgiu. banat: Timiș, Arad, Hunedoara, Caraș-Severin. dobrogea: Constanța, Tulcea, Călărași,
+        Ialomița. Same list as the meter simulator.
+      enum: [București, Ilfov, Giurgiu, Timiș, Arad, Hunedoara, Caraș-Severin, Constanța, Tulcea, Călărași, Ialomița]
+      example: Timiș
+
+    ComtradeRecording:
+      type: object
+      description: |
+        Read by FileGrid from an outage record's COMTRADE configuration (.cfg, or the CFG part of a .cff)
+        at upload. Every field but `format` may be absent when the file does not carry it.
+      required: [format]
+      properties:
+        format: { type: string, const: comtrade }
+        station: { type: string, example: Statia 110kV Timisoara Sud }
+        recorder: { type: string, example: DFR-07 }
+        revision: { type: string, example: "2013" }
+        faultTime: { type: string, format: date-time, description: "Trigger time, as UTC" }
+        startTime: { type: string, format: date-time, description: "First sample, as UTC" }
+        recordingMs: { type: integer, example: 1200 }
+        lineHz: { type: number, example: 50 }
+        clock:
+          type: string
+          enum: [utc, offset, assumed-utc]
+          description: |
+            How the times were turned into UTC. `offset`: the file's 2013 `time_code` gave the recorder's
+            offset from UTC and it was applied. `utc`: `time_code` was 0. `assumed-utc`: the file has no
+            `time_code` (1991/1999 files), so the recorder's clock is read as UTC; show this to the user.
+
     Health:
       type: object
       required: [status, service]
@@ -709,7 +748,9 @@ components:
             originalName: { type: string, example: statia-ploiesti-2026-11-14.cfg }
             contentType: { type: string, example: application/octet-stream }
             region: { $ref: "#/components/schemas/Region" }
+            county: { $ref: "#/components/schemas/County" }
             description: { type: string }
+            recording: { $ref: "#/components/schemas/ComtradeRecording" }
             uploadedBy: { type: string, example: dispatch }
             lastVerifiedAt: { type: string, format: date-time }
             status: { type: string, enum: [stored, spooled, corrupt], example: stored }
@@ -948,12 +989,26 @@ components:
       type: object
       required: [county, region, outages]
       properties:
-        county: { type: string, example: Timiș }
+        county:
+          type: string
+          example: Timiș
+          description: A `County`, or `Not recorded` for outages uploaded without one (grouped by region).
         region: { $ref: "#/components/schemas/Region" }
         lat: { type: number, example: 45.75 }
         lon: { type: number, example: 21.23 }
         outages: { type: integer, example: 14 }
         totalMinutes: { type: number, example: 412 }
+        lastFaultAt: { type: string, format: date-time, description: Latest COMTRADE fault time in this county }
+        stations:
+          type: array
+          description: Stations named by the outage records' COMTRADE files, most outages first (at most 5).
+          items:
+            type: object
+            required: [station, outages]
+            properties:
+              station: { type: string, example: Statia 110kV Timisoara Sud }
+              outages: { type: integer, example: 6 }
+              lastFaultAt: { type: string, format: date-time }
 
     StorageLabLatency:
       type: object
