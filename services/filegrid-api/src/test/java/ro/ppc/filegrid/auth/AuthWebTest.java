@@ -248,12 +248,42 @@ class AuthWebTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // --- content dedup: still 201, with a header ---
+
+    @Test
+    void aDuplicateUploadIs201WithTheDeduplicatedHeader() throws Exception {
+        var receipt = new FileReceipt(UUID.randomUUID().toString(), "outage", "s3", 1, "ab", OffsetDateTime.now(), false, null, "sig");
+        when(fileService.put(any(), any(FileService.BodySource.class))).thenReturn(new FileService.Stored(receipt, true));
+        var file = new MockMultipartFile("file", "a.bin", "application/octet-stream", new byte[] {1});
+
+        mvc.perform(multipart("/api/v1/files").file(file).param("category", "outage")
+                        .header("Authorization", bearer(Role.DISPATCH)))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("X-FileGrid-Deduplicated", "true"))
+                .andExpect(jsonPath("$.id").value(receipt.id()));
+    }
+
+    @Test
+    void aNewUploadHasNoDeduplicatedHeader() throws Exception {
+        var receipt = new FileReceipt(UUID.randomUUID().toString(), "outage", "s3", 1, "ab", OffsetDateTime.now(), false, null, "sig");
+        when(fileService.put(any(), any(FileService.BodySource.class))).thenReturn(new FileService.Stored(receipt, false));
+        var file = new MockMultipartFile("file", "a.bin", "application/octet-stream", new byte[] {1});
+
+        mvc.perform(multipart("/api/v1/files").file(file).param("category", "outage")
+                        .header("Authorization", bearer(Role.DISPATCH)))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .doesNotExist("X-FileGrid-Deduplicated"));
+    }
+
     // --- force-storage is admin only ---
 
     @Test
     void onlyAnAdminMaySetForceStorage() throws Exception {
-        when(fileService.store(any(), any(FileService.BodySource.class))).thenReturn(new FileReceipt(UUID.randomUUID().toString(),
-                "outage", "db", 1, "ab", OffsetDateTime.now(), false, null, "sig"));
+        when(fileService.put(any(), any(FileService.BodySource.class))).thenReturn(new FileService.Stored(
+                new FileReceipt(UUID.randomUUID().toString(), "outage", "db", 1, "ab", OffsetDateTime.now(), false, null, "sig"),
+                false));
         var file = new MockMultipartFile("file", "a.bin", "application/octet-stream", new byte[] {1});
 
         mvc.perform(multipart("/api/v1/files").file(file).param("category", "outage")

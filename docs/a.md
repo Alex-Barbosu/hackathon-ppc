@@ -707,11 +707,11 @@ Docker is not available, and runs in CI.
 | Need | State |
 | --- | --- |
 | `meter_intervals` rows for the anomaly view | filled for new readings and, with V104, for the old ones |
-| `meter_readings.lat` / `lon` | **null in every reading the simulator sends** (`lat: null, lon: null`). Zone B's simulator would have to send them. Zone A stores what arrives. |
+| `meter_readings.lat` / `lon` | filled by the current simulator (checked live: the readings it sends carry them). The old rows in a lab database (10 187 readings from 19 meters with ids like `RO-MT-778831`) came from an older generator and have them null. Zone A stores what arrives. |
 | `meter_readings.county` | filled by the simulator |
 | `files.county` (outage hotspots by county) | **no source.** The upload has no county field (not in `openapi.yaml`) and `files.county` is always null. Options: (a) add an optional `county` form field and tus metadata key to the contract, and Zone C's upload form sends it (a few lines on my side once the contract says so); (b) fill it later from the COMTRADE `.cfg` station (backlog item 18). Until then, group hotspots by `region` or by station once COMTRADE exists. |
 | `files.region` | set for uploads that send it; the web form and the chaos storm do. The 933 older outage rows with a null region come from lab scripts that did not send one. |
-| Timestamps in the simulated data | the simulator sends many readings (growing `seq`) with the **same** interval `ts`, so 10 187 readings from 19 meters hold only 19 distinct `(meter_id, ts)`: `meter_intervals` is keyed by meter and time, so it has one row each. For a useful anomaly view the simulator must advance `ts` by 15 minutes per interval across readings (Zone B). |
+| Timestamps in the simulated data | the current simulator advances the time per meter: one interval per reading and none overlapping (checked live, `make a-meter-once-check`). The same older rows in the lab database repeat one `ts` per meter (19 distinct `(meter_id, ts)` in 10 187 readings), so a database filled before then gives a thin `meter_intervals`; `make reset` gives a clean one. |
 
 ## Documents on the FTP server are ciphertext (live proof)
 
@@ -776,3 +776,48 @@ configuration in it and a document called `.cfg` get no metadata; a 5 MiB `.cff`
 
 Unit tests: 14 for the parser (1991 and 1999 layouts, several sample rates, variable rate, `.cff`, cut-off head, UTF-8 and Latin-1 names, bad
 dates, nanoseconds, random bytes never throw), 3 at service level, and 2 on a real PostgreSQL (`FileMetadataDbTest`, run in CI).
+
+## Content dedup for identical uploads (backlog 16)
+
+Two identical outage files in the same region are one file. `POST /files` hashes the bytes while they stream in (as before). When the
+hash is known, the API looks for a stored file with the same category, region, SHA-256 and size. If it finds one, **it reads that file back
+and hashes it**, and only if it is still intact does it throw the new copy away and answer with the existing file's receipt.
+
+| Case | Result |
+| --- | --- |
+| same bytes, same category and region | `201`, the **existing** file's receipt (same id and signature), header `X-FileGrid-Deduplicated: true`; no new row, no new object |
+| other region, or other category | its own file |
+| a document (encrypted and audited) | never merged: each has its own key and its own audit trail |
+| `X-FileGrid-Force-Storage` (Storage Lab) | never merged: the Lab measures a storage, so the bytes must go there |
+| the existing copy is missing, damaged, or its storage cannot be read | not merged; the new upload is stored as usual. Good bytes are never replaced by a file that cannot be read back. |
+| the lookup itself fails | not merged; the upload is stored |
+| a copy in any storage, including a `db` blob or the spool | can be the target |
+
+- The status stays `201`, the only success in the contract, and the header says it was merged. The receipt is the existing file's, so
+  `storedAt` is when it was first stored. Nothing is written to `files`, and for a database upload the blob is rolled back with the
+  transaction.
+- A merged upload costs one read of the existing file (the hash check). Files are at most 20 MB for outage.
+- Shared on purpose: deleting that file (`DELETE /files/{id}`) removes it for everyone who uploaded the same bytes. Any logged-in user can read
+  any file already, so nothing new is exposed. A Storage Lab sample is random, so a real upload is never merged with one.
+- Not covered: tus uploads (video; the hash is known only at the end), and two identical uploads that arrive at the very same moment (both
+  pass the check and are both stored, as before this change). The `files` table is indexed on `(category, sha256)`: `V105`.
+- No new metric and no policy flag (the policy schema is the contract's): the rules above are fixed in the code.
+
+Proof: `make a-dedup-check` (live, deletes what it makes), 6 service tests (merged once, damaged copy not used, missing object not used, failed
+lookup, forced storage, document), 2 web tests (the header), and 3 on a real PostgreSQL (`findDuplicate` by category, hash, size and region; a
+corrupt row is never the target; the oldest wins).
+
+## Acceptance: retries never duplicate meter readings
+
+`make a-meter-once-check`:
+
+| Check | Result |
+| --- | --- |
+| 300 readings from 20 meters, each sent **three times**, all 900 requests at once from 32 threads | 300 x `201`, 600 x `200` |
+| `filegrid_meter_readings_total` | +300 `accepted`, +600 `duplicate` |
+| database | 300 rows in `meter_readings`, 300 distinct keys, 300 rows in `meter_intervals` |
+| the real simulator (40 meters, 20 readings/s, about 20 s, started for the check against the real API) | sent 418 = acked 418 = the API's `accepted` rise = 418 new rows; one interval per reading and none overlapping |
+
+To note: this stack's `.env` can point the simulator at the Prism mock (`METER_TARGET_URL=http://mock-api:4010/...`), and then no reading reaches
+the API. For the demo, remove that line (the default is the real API through Caddy `:8088`). Also, a long-running Caddy container keeps the
+config it started with when the Caddyfile is replaced by a `git pull`: if `caddy:8088` refuses connections, `docker compose up -d --force-recreate caddy`.

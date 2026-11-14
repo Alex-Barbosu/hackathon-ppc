@@ -138,6 +138,29 @@ public class FileService {
     }
 
     public FileReceipt store(UploadRequest req, BodySource source) {
+        return put(req, source).receipt();
+    }
+
+    /**
+     * The result of an upload: its receipt, and whether it was already there. {@code duplicate} is true when the bytes
+     * were the same as a file already stored in the same category and region: nothing new is kept, and the receipt is
+     * the existing file's.
+     */
+    public record Stored(FileReceipt receipt, boolean duplicate) {
+    }
+
+    /** An identical file already exists. Carries it out of the transaction (which it rolls back) to the upload. */
+    private static final class DuplicateUploadException extends ApiException {
+        private final FileRow existing;
+
+        DuplicateUploadException(FileRow existing) {
+            super(org.springframework.http.HttpStatus.CONFLICT, ro.ppc.filegrid.common.ApiError.Code.BAD_REQUEST,
+                    "an identical file is already stored");
+            this.existing = existing;
+        }
+    }
+
+    public Stored put(UploadRequest req, BodySource source) {
         CategoryPolicy catPolicy = policy.policyFor(req.category());
         if (req.sizeBytes() > catPolicy.maxSizeBytes()) {
             throw ApiException.tooLarge(req.category().slug() + " exceeds maxSizeMb="
@@ -151,7 +174,7 @@ public class FileService {
         }
     }
 
-    private FileReceipt storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy) {
+    private Stored storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy) {
         UUID id = UUID.randomUUID();
         // Every log line of this upload carries its category and file id, inside a span or not.
         try (Spans.Context ignored = Spans.context(req.category(), null, id)) {
@@ -159,7 +182,7 @@ public class FileService {
         }
     }
 
-    private FileReceipt storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id) {
+    private Stored storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id) {
         List<Storage> plan;
         try (Spans.Scope route = spans.open("policy.route", req.category(), null, id, req.sizeBytes())) {
             plan = plan(req, catPolicy);
@@ -212,8 +235,8 @@ public class FileService {
         return fallback == primary ? List.of(primary) : List.of(primary, fallback);
     }
 
-    private FileReceipt storeAt(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id,
-                                Storage intended, Storage target, boolean fallback) {
+    private Stored storeAt(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id,
+                           Storage intended, Storage target, boolean fallback) {
         String traceId = currentTraceId();
         boolean encrypt = catPolicy.encrypt();
         // A fresh key per attempt: nothing from a failed attempt is reused.
@@ -235,7 +258,17 @@ public class FileService {
                     encrypt ? "application/octet-stream" : req.contentType(),
                     encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes(), fallback, head);
 
-            Written written = persist(sink, catPolicy, intended, encrypt, envelope, traceId);
+            Written written;
+            try {
+                written = persist(sink, catPolicy, intended, encrypt, envelope, traceId);
+            } catch (DuplicateUploadException dup) {
+                // The same bytes are already stored and were just read back intact. Nothing from this upload is kept.
+                try (Spans.Context ignored = Spans.context(req.category(), target, id)) {
+                    log.info("upload is a duplicate of file_id={} category={} size={}",
+                            dup.existing.id(), req.category().slug(), dup.existing.sizeBytes());
+                }
+                return new Stored(receiptOf(dup.existing), true);
+            }
 
             metrics.recordOp(req.category(), target, FileGridMetrics.Op.WRITE,
                     fallback ? FileGridMetrics.Outcome.FALLBACK : FileGridMetrics.Outcome.OK, written.took());
@@ -248,8 +281,8 @@ public class FileService {
 
             String signature = signer.sign(id.toString(), req.category().slug(), target.slug(),
                     written.plainSize(), written.sha());
-            return new FileReceipt(id.toString(), req.category().slug(), target.slug(),
-                    written.plainSize(), written.sha(), java.time.OffsetDateTime.now(), encrypt, traceId, signature);
+            return new Stored(new FileReceipt(id.toString(), req.category().slug(), target.slug(),
+                    written.plainSize(), written.sha(), java.time.OffsetDateTime.now(), encrypt, traceId, signature), false);
         } catch (IOException e) {
             throw ApiException.badRequest("cannot read the upload");
         }
@@ -271,6 +304,10 @@ public class FileService {
             // rolls the blob back with everything else, and counts against the database circuit.
             return guard.call(Storage.DB, () -> tx.execute(status -> {
                 Written w = writeUnchecked(sink);
+                FileRow same = duplicateOf(sink, w, catPolicy);
+                if (same != null) {
+                    throw new DuplicateUploadException(same); // rolls the blob back with everything else
+                }
                 record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId, metadataOf(sink));
                 return w;
             }));
@@ -291,6 +328,12 @@ public class FileService {
             w = guard.call(target, () -> write(sink));
         }
 
+        FileRow same = duplicateOf(sink, w, catPolicy);
+        if (same != null) {
+            removeQuietly(sink.adapter(), w.ref().key(), id);
+            throw new DuplicateUploadException(same);
+        }
+
         // FTP, S3 and the spool are not part of a database transaction: bytes first, then the row and its
         // audit event together. If recording fails the bytes are removed again, so nothing is left orphaned.
         try {
@@ -306,6 +349,40 @@ public class FileService {
             throw ApiException.storageUnavailable("could not record the file; nothing was stored");
         }
         return w;
+    }
+
+    /**
+     * Content dedup: the stored file that holds exactly these bytes, if the upload may be merged with it; else null.
+     *
+     * <p>Only a plain, unaudited file qualifies (a document is encrypted with a key of its own and audited, so its
+     * bytes are never shared), and not one sent with a forced storage (that is the Storage Lab measuring a storage).
+     * The match is the same category, region, SHA-256 and size. Before the new bytes are thrown away, the existing
+     * file is read back and hashed: if it is missing or no longer matches its hash, or its storage cannot be read,
+     * there is no dedup, and the new copy is stored as usual. So a dedup never replaces good bytes with a bad file.
+     */
+    private FileRow duplicateOf(Sink sink, Written w, CategoryPolicy catPolicy) {
+        UploadRequest req = sink.req();
+        if (catPolicy.encrypt() || catPolicy.auditEnabled() || req.forceStorage() != null) {
+            return null;
+        }
+        try {
+            FileRow existing = files.findDuplicate(req.category().slug(), w.sha(), w.plainSize(), req.region()).orElse(null);
+            if (existing == null || existing.id().equals(sink.id())) {
+                return null;
+            }
+            StorageAdapter adapter = storages.get(Storage.fromSlug(existing.storage()));
+            String actual = hashStored(adapter, existing);
+            return w.sha().equalsIgnoreCase(actual) ? existing : null;
+        } catch (RuntimeException e) {
+            return null; // cannot tell: store the new copy
+        }
+    }
+
+    /** The receipt of a file already stored, as it was given when that file was uploaded. */
+    private FileReceipt receiptOf(FileRow row) {
+        String signature = signer.sign(row.id().toString(), row.category(), row.storage(), row.sizeBytes(), row.sha256());
+        return new FileReceipt(row.id().toString(), row.category(), row.storage(), row.sizeBytes(), row.sha256(),
+                row.createdAt(), row.encrypted(), row.traceId(), signature);
     }
 
     /** Everything needed to push one upload into a backend. */

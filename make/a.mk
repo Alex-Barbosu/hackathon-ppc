@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check a-dedup-check a-meter-once-check
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -45,3 +45,9 @@ a-meter-check: ## Zone A: meter reading -> meter_intervals, retries never duplic
 
 a-comtrade-check: ## Zone A: an outage .cfg is read at upload (station, fault time) into files.metadata; other files get none (removes what it makes)
 	python3 services/filegrid-api/scripts/comtrade_check.py
+
+a-dedup-check: ## Zone A: identical outage uploads are stored once (same category and region); documents, forced storage never merged
+	python3 services/filegrid-api/scripts/dedup_check.py
+
+a-meter-once-check: ## Zone A: every reading sent 3x at once = 1 row; then the real simulator against the real API (SIM=0 skips it)
+	python3 services/filegrid-api/scripts/meter_exactly_once_check.py
