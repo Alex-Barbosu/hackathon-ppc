@@ -1,4 +1,4 @@
-// Zone B. Source of infra/grafana/dashboards/overview.json (FileGrid Overview).
+// Zone B. Source of infra/grafana/dashboards/*.json (Overview, Meters, Storages, Storm).
 // Edit here, then: make b-dashboards. Titles speak to a decision maker; descriptions name
 // the metric (contracts/metrics.md) behind each panel.
 import { writeFileSync } from "node:fs";
@@ -169,9 +169,19 @@ panels.push(stat("Storage cut off (circuit breaker)", "filegrid_circuit_open: OP
   { colorMode: "background", graphMode: "none", textMode: "value_and_name", mappings: [{ type: "value", options: { "0": { text: "closed", color: "green" }, "1": { text: "OPEN", color: "red" } } }] }));
 panels.push(ts("Files waiting for their storage (spool)", "filegrid_spool_pending: items parked in the fallback spool, waiting for their storage to return.", { x: 16, y, w: 8, h: 5 },
   [q("sum by (category) (filegrid_spool_pending)", "{{category}}")], "short"));
+y += 5;
+// Per storage rather than per category: the question here is "is this storage slow?", e.g.
+// while /chaos/network degrades one of them.
+panels.push(ts("Save and download time per storage (95 % within)",
+  "p95 of filegrid_op_duration_seconds by storage and op (write, read), all categories together. Dots are sampled requests: click one to open its trace.",
+  { x: 0, y, w: 12, h: 8 },
+  [q('histogram_quantile(0.95, sum by (le, storage, op) (rate(filegrid_op_duration_seconds_bucket{op=~"write|read"}[$__rate_interval])))', "{{storage}} · {{op}}", { exemplar: true })], "s"));
+panels.push(ts("Failing operations per storage", "filegrid_ops_total: outcome=error / all operations, per storage. A dead storage shows here first, before its circuit opens.",
+  { x: 12, y, w: 12, h: 8 },
+  [q('(sum by (storage) (rate(filegrid_ops_total{outcome="error"}[$__rate_interval])) or sum by (storage) (rate(filegrid_ops_total[$__rate_interval])) * 0)\n/ sum by (storage) (rate(filegrid_ops_total[$__rate_interval]))', "{{storage}}")], "percentunit"));
 
 // ---------------------------------------------------------------- load tests
-y += 5;
+y += 8;
 panels.push(row("Load tests: synthetic users through the gateway (k6)", y)); y += 1;
 const K6 = "run make b-load S=<scenario>";
 const t = 'testid=~"$testid"';
@@ -187,11 +197,18 @@ const custom = (name, label, values, current) => ({
   current: current ? { text: [current], value: [current] } : { text: ["All"], value: ["$__all"] },
   options: [{ text: "All", value: "$__all", selected: !current }, ...values.map((v) => ({ text: v, value: v, selected: v === current }))],
 });
-const dashboard = {
-  uid: "filegrid-overview",
-  title: "FileGrid Overview",
-  description: "p50/p95/p99, throughput and errors per category × storage; meter exactly-once; storage health. Metric names: contracts/metrics.md.",
+const variables = [
+  custom("category", "Category", ["meter", "outage", "document", "video"]),
+  custom("storage", "Storage", ["db", "s3", "ftp", "spool"]),
+  custom("op", "Op", ["write", "read", "verify"], "write"),
+  { name: "testid", label: "k6 run", type: "query", datasource: ds, query: { query: "label_values(k6_http_reqs_total, testid)", refId: "testid" },
+    refresh: 2, sort: 2, multi: true, includeAll: true, allValue: ".*", current: { text: ["All"], value: ["$__all"] } },
+];
+const board = (uid, title, description, ps) => ({
+  uid, title, description,
   tags: ["filegrid"],
+  // Every FileGrid dashboard links to the others, so a presenter moves between them in one click.
+  links: [{ type: "dashboards", tags: ["filegrid"], asDropdown: false, includeVars: false, keepTime: true, title: "FileGrid" }],
   timezone: "browser",
   editable: true,
   graphTooltip: 1,
@@ -200,15 +217,51 @@ const dashboard = {
   refresh: "5s",
   time: { from: "now-15m", to: "now" },
   timepicker: { refresh_intervals: ["5s", "10s", "30s", "1m", "5m"] },
-  templating: { list: [
-    custom("category", "Category", ["meter", "outage", "document", "video"]),
-    custom("storage", "Storage", ["db", "s3", "ftp", "spool"]),
-    custom("op", "Op", ["write", "read", "verify"], "write"),
-    { name: "testid", label: "k6 run", type: "query", datasource: ds, query: { query: "label_values(k6_http_reqs_total, testid)", refId: "testid" },
-      refresh: 2, sort: 2, multi: true, includeAll: true, allValue: ".*", current: { text: ["All"], value: ["$__all"] } },
-  ] },
+  // Only the variables a dashboard's queries use, so a focused board shows no dead dropdowns.
+  templating: { list: variables.filter((v) => JSON.stringify(ps).includes(`$${v.name}`)) },
   annotations: { list: [{ builtIn: 1, datasource: { type: "grafana", uid: "-- Grafana --" }, enable: true, hide: true, iconColor: "rgba(0, 211, 255, 1)", name: "Annotations & Alerts", type: "dashboard" }] },
-  panels,
+  panels: ps,
+});
+
+// The focused dashboards reuse the Overview's rows, panel for panel, so a title means the same
+// thing everywhere. A row runs from its row panel to the next one; it is moved to the top.
+const rowsOf = (...titlePrefixes) => {
+  const out = [];
+  let take = false, top = 0, shift = 0;
+  for (const p of panels) {
+    if (p.type === "row") {
+      take = titlePrefixes.some((t) => p.title.startsWith(t));
+      if (take) { shift = p.gridPos.y - top; }
+    }
+    if (!take) continue;
+    out.push({ ...p, gridPos: { ...p.gridPos, y: p.gridPos.y - shift } });
+    top = Math.max(top, p.gridPos.y - shift + p.gridPos.h);
+  }
+  return out;
 };
-writeFileSync(process.argv[2] ?? new URL("../dashboards/overview.json", import.meta.url), JSON.stringify(dashboard, (k, v) => (k === "i" || v === undefined ? undefined : v), 2) + "\n");
-console.log(`panels: ${panels.length}`);
+const scaleOut = panels.find((p) => p.title.startsWith("Work per FileGrid instance"));
+const fallback = panels.find((p) => p.title.startsWith("Saved to the fallback"));
+const below = (ps, extra) => {
+  const y0 = Math.max(...ps.map((p) => p.gridPos.y + p.gridPos.h));
+  return [...ps, ...extra.map((p) => ({ ...p, gridPos: { ...p.gridPos, x: 0, y: y0, w: 24 } }))];
+};
+
+const dashboards = {
+  overview: board("filegrid-overview", "FileGrid Overview",
+    "p50/p95/p99, throughput and errors per category × storage; meter exactly-once; storage health. Metric names: contracts/metrics.md.", panels),
+  meters: board("filegrid-meters", "FileGrid Meters",
+    "Smart meter readings: sent vs confirmed vs stored, duplicates refused, resends with the same key. Proves 'never lost, never duplicated'.",
+    rowsOf("Smart meters")),
+  storages: board("filegrid-storages", "FileGrid Storages",
+    "PostgreSQL, S3 and FTP as FileGrid sees them: reachable, circuit, spool, speed and failures per storage, fallback writes.",
+    below(rowsOf("Storages"), [fallback])),
+  storm: board("filegrid-storm", "FileGrid Storm",
+    "A 10x spike in one category: save time per category, work waiting per category (filegrid_queue_depth), arrivals, and how the load spreads over instances.",
+    below(rowsOf("Is FileGrid up?", "Storm"), [scaleOut])),
+};
+const json = (d) => JSON.stringify(d, (k, v) => (k === "i" || v === undefined ? undefined : v), 2) + "\n";
+const outDir = process.argv[2] ?? new URL("../dashboards/", import.meta.url).pathname;
+for (const [name, d] of Object.entries(dashboards)) {
+  writeFileSync(`${outDir.replace(/\/?$/, "/")}${name}.json`, json(d));
+  console.log(`${name}: ${d.panels.length} panels`);
+}

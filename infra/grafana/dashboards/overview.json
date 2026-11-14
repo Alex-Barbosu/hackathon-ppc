@@ -5,6 +5,18 @@
   "tags": [
     "filegrid"
   ],
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "filegrid"
+      ],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "title": "FileGrid"
+    }
+  ],
   "timezone": "browser",
   "editable": true,
   "graphTooltip": 1,
@@ -2309,25 +2321,137 @@
     },
     {
       "id": 34,
+      "type": "timeseries",
+      "title": "Save and download time per storage (95 % within)",
+      "description": "p95 of filegrid_op_duration_seconds by storage and op (write, read), all categories together. Dots are sampled requests: click one to open its trace.",
+      "gridPos": {
+        "x": 0,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, storage, op) (rate(filegrid_op_duration_seconds_bucket{op=~\"write|read\"}[$__rate_interval])))",
+          "legendFormat": "{{storage}} · {{op}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "noValue": "waiting for filegrid-api metrics",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "Failing operations per storage",
+      "description": "filegrid_ops_total: outcome=error / all operations, per storage. A dead storage shows here first, before its circuit opens.",
+      "gridPos": {
+        "x": 12,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (storage) (rate(filegrid_ops_total{outcome=\"error\"}[$__rate_interval])) or sum by (storage) (rate(filegrid_ops_total[$__rate_interval])) * 0)\n/ sum by (storage) (rate(filegrid_ops_total[$__rate_interval]))",
+          "legendFormat": "{{storage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "noValue": "waiting for filegrid-api metrics",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 36,
       "type": "row",
       "title": "Load tests: synthetic users through the gateway (k6)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 77,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "timeseries",
       "title": "Synthetic requests per second",
       "description": "k6_http_reqs_total per scenario. Pick a run with the testid variable (e.g. storm-outage-143005).",
       "gridPos": {
         "x": 0,
-        "y": 70,
+        "y": 78,
         "w": 8,
         "h": 7
       },
@@ -2376,13 +2500,13 @@
       }
     },
     {
-      "id": 36,
+      "id": 38,
       "type": "timeseries",
       "title": "Upload time seen by users (95 % within)",
       "description": "k6_http_req_duration_p95: client-side p95 of uploads as k6 sees them through the gateway (TLS included).",
       "gridPos": {
         "x": 8,
-        "y": 70,
+        "y": 78,
         "w": 8,
         "h": 7
       },
@@ -2431,13 +2555,13 @@
       }
     },
     {
-      "id": 37,
+      "id": 39,
       "type": "timeseries",
       "title": "Checks passing: stored and byte-identical",
       "description": "k6_checks_rate: share of k6 checks passing: upload 201, receipt SHA-256 = local SHA-256, download byte-identical, video resumed and complete.",
       "gridPos": {
         "x": 16,
-        "y": 70,
+        "y": 78,
         "w": 8,
         "h": 7
       },

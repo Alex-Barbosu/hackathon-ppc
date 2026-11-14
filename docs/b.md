@@ -425,6 +425,26 @@ Start by telling me in a few lines what changed on main since your last known st
   `encrypt: true`. Expected until the crypto item lands; `DocumentProtectionFailure` will
   fire on it once wired.
 
+## Grafana: focused dashboards Meters, Storages, Storm (branch `zone-b/dashboards`)
+
+`infra/grafana/src/overview.mjs` now writes four files (`make b-dashboards`). The focused
+boards copy the Overview's rows panel for panel, so a title means the same everywhere, and
+each shows only the variables its queries use. All four link to each other (tag `filegrid`).
+
+| Dashboard | uid | Panels |
+| --- | --- | --- |
+| FileGrid Meters | `filegrid-meters` | the *Smart meters* row: sent vs confirmed vs stored, duplicates refused, resends, per region |
+| FileGrid Storages | `filegrid-storages` | reachable, circuit, spool, **new:** p95 per storage × op (with exemplars), failing share per storage; fallback writes |
+| FileGrid Storm | `filegrid-storm` | health stats, the *Storm* row (save time per category, `filegrid_queue_depth`, arrivals), work per instance |
+
+The two new Storages panels are also in the Overview's Storages row.
+Checked: every query of the three boards ran against Prometheus without error; 24 of 27
+return data on an idle stack. The empty ones are duplicates refused, fallback writes and the
+outage save time, which only fill during retries, a storage outage or outage uploads. During a
+40 s outage storm ×10, the Storm board's queries read outage 5.0/s, outage p95 21 ms, meter
+p95 3.5 → 11.8 ms. `filegrid_queue_depth{category="outage"}` stayed 0: outage's 8 workers kept
+up, so nothing queued. Lower `workers` with `PUT /policy` to show the queue fill.
+
 ## Grafana: FileGrid Overview (`infra/grafana/dashboards/overview.json`)
 
 Home dashboard of https://localhost/grafana (`GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH`).
