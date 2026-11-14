@@ -3,6 +3,7 @@ import { HashText } from "../../components/HashText";
 import type { FileMeta } from "../../lib/domain";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { DownloadButton } from "./DownloadButton";
+import { RecordingLine } from "./RecordingLine";
 
 // Above this, buffering in the browser stops being safe; use a streamed link instead.
 const STREAM_ABOVE_BYTES = 50 * 1024 * 1024;
@@ -14,8 +15,9 @@ export function FileCard({ file }: { file: FileMeta }) {
       <div className="min-w-0">
         <p className="font-display text-xl break-words">{name}</p>
         <p className="mt-1 text-[13px] text-muted tabular-nums">
-          {file.category} · {file.region ?? "no region"} · {formatBytes(file.sizeBytes)} · {formatDateTime(file.storedAt)}
+          {file.category} · {file.county ? `${file.county}, ` : ""}{file.region ?? "no region"} · {formatBytes(file.sizeBytes)} · {formatDateTime(file.storedAt)}
         </p>
+        <RecordingLine recording={file.recording} />
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <StorageBadge storage={file.storage} />
           {file.status === "corrupt" && <span className="rounded-full bg-bad/10 px-2.5 py-1 text-xs font-medium text-bad">Corrupt</span>}

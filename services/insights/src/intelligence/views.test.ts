@@ -32,8 +32,27 @@ test("hotspots carry coordinates only when the county is known", async () => {
     { county: "Timiș", region: "banat", lat: 45.75, lon: 21.23, outages: 14, total_minutes: 412 },
     { county: "Not recorded", region: "muntenia", lat: null, lon: null, outages: 224, total_minutes: 0 },
   ]));
-  assert.deepEqual(out[0], { county: "Timiș", region: "banat", lat: 45.75, lon: 21.23, outages: 14, totalMinutes: 412 });
+  assert.deepEqual(out[0], { county: "Timiș", region: "banat", lat: 45.75, lon: 21.23, outages: 14, totalMinutes: 412, stations: [] });
   assert.equal("lat" in (out[1] ?? {}), false);
+});
+
+test("hotspots name the stations behind them, from the COMTRADE files", async () => {
+  const out = await listHotspots(fakeDb(() => [
+    {
+      county: "Constanța", region: "dobrogea", lat: 44.18, lon: 28.65, outages: 9, total_minutes: 0,
+      last_fault_at: new Date("2026-11-13T18:00:00.150Z"),
+      stations: [
+        { station: "Statia 110/20kV Constanta Nord", outages: 6, last_fault_at: "2026-11-13T18:00:00.15+00:00" },
+        { station: "", outages: 1 }, "garbage", null,
+        { station: "Statia 110/20kV Mangalia", outages: 3, last_fault_at: null },
+      ],
+    },
+  ]));
+  assert.equal(out[0]?.lastFaultAt, "2026-11-13T18:00:00.150Z");
+  assert.deepEqual(out[0]?.stations, [
+    { station: "Statia 110/20kV Constanta Nord", outages: 6, lastFaultAt: "2026-11-13T18:00:00.150Z" },
+    { station: "Statia 110/20kV Mangalia", outages: 3 },
+  ]);
 });
 
 test("view queries are capped and parameterised", async () => {

@@ -67,6 +67,8 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
   if (!anomalies.length) grid.notes.push("No meter anomalies were found. Parsed meter intervals may not be stored yet, so the baselines cannot be built.");
   const top = hotspots[0];
   if (top) grid.facts.push({ label: `outage records, ${top.county === "Not recorded" ? `region ${top.region} (county not recorded)` : top.county}`, value: String(top.outages) });
+  const station = top?.stations[0];
+  if (top && station) grid.facts.push({ label: `busiest station in ${top.county === "Not recorded" ? top.region : top.county}: ${station.station}`, value: `${station.outages} outage records` });
   grid.facts.push({ label: "integrity failures in the window", value: String(Math.round(integrity[0]?.value ?? 0)) });
   for (const a of alerts) grid.facts.push({ label: `alert fired: ${str(a.alertname)}`, value: Number(a.times) === 1 ? "1 time" : `${str(a.times)} times` });
   return [storage, traffic, grid];
