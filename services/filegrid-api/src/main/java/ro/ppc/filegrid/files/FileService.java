@@ -223,14 +223,17 @@ public class FileService {
         try (InputStream raw = source.open()) {
             // Count and hash the ORIGINAL bytes as they are pulled; encryption (if any) sits after
             // the digest, so the receipt hash is of the plaintext.
-            TrackingInputStream tracked = new TrackingInputStream(raw);
+            // An outage configuration file (.cfg) keeps the first bytes for its metadata; nothing else is copied.
+            HeadCapturingInputStream head = req.category() == Category.OUTAGE && ComtradeCfg.looksLikeConfig(req.originalName())
+                    ? new HeadCapturingInputStream(raw, ComtradeCfg.MAX_HEAD) : null;
+            TrackingInputStream tracked = new TrackingInputStream(head != null ? head : raw);
             CountingInputStream counted = new CountingInputStream(tracked);
             DigestInputStream hashed = new DigestInputStream(counted, Hashing.sha256());
             InputStream toStore = encrypt ? crypto.encrypt(hashed, envelope, id) : hashed;
             Sink sink = new Sink(adapter, target, id, req, toStore, tracked, hashed, counted,
                     // Ciphertext reveals nothing about the file type, so do not hand the real one to storage.
                     encrypt ? "application/octet-stream" : req.contentType(),
-                    encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes(), fallback);
+                    encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes(), fallback, head);
 
             Written written = persist(sink, catPolicy, intended, encrypt, envelope, traceId);
 
@@ -268,7 +271,7 @@ public class FileService {
             // rolls the blob back with everything else, and counts against the database circuit.
             return guard.call(Storage.DB, () -> tx.execute(status -> {
                 Written w = writeUnchecked(sink);
-                record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId);
+                record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId, metadataOf(sink));
                 return w;
             }));
         }
@@ -293,7 +296,7 @@ public class FileService {
         try {
             guard.call(Storage.DB, () -> {
                 tx.executeWithoutResult(status ->
-                        record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId));
+                        record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId, metadataOf(sink)));
                 return null;
             });
         } catch (RuntimeException e) {
@@ -308,7 +311,7 @@ public class FileService {
     /** Everything needed to push one upload into a backend. */
     private record Sink(StorageAdapter adapter, Storage target, UUID id, UploadRequest req, InputStream stream,
                         TrackingInputStream tracked, DigestInputStream hashed, CountingInputStream counted,
-                        String storedType, long storedLength, boolean fallback) {
+                        String storedType, long storedLength, boolean fallback, HeadCapturingInputStream head) {
     }
 
     /** What the backend took: the hash and size of the ORIGINAL bytes, and how long it took. */
@@ -347,15 +350,33 @@ public class FileService {
         }
     }
 
+    /**
+     * What the file's own content says about it, as JSON for {@code files.metadata}: for now the COMTRADE configuration
+     * of an outage record (station, fault time...). Null when there is nothing to say, which is the usual case. It
+     * never fails an upload: a file that cannot be read this way is stored like any other.
+     */
+    private static String metadataOf(Sink sink) {
+        if (sink.head() == null) {
+            return null;
+        }
+        return ComtradeCfg.metadataJson(sink.head().head(), sink.head().head().length).orElse(null);
+    }
+
     /** The files row, its audit event when the policy asks for one, and the spool index when parked. */
     private void record(CategoryPolicy catPolicy, UploadRequest req, UUID id, Storage target, Storage intended,
-                        Written w, boolean encrypt, EnvelopeCrypto.Envelope envelope, String traceId) {
+                        Written w, boolean encrypt, EnvelopeCrypto.Envelope envelope, String traceId,
+                        String metadataJson) {
         boolean parked = target == Storage.SPOOL;
         FileRow row = new FileRow(id, req.category().slug(), target.slug(), w.ref().key(),
                 w.plainSize(), w.sha(), req.contentType(), req.originalName(), req.description(),
                 req.region(), null, req.uploadedBy(), encrypt, parked ? "spooled" : "stored", traceId, null, null);
-        files.insert(row, envelope == null ? null : envelope.wrappedKey(),
-                envelope == null ? null : envelope.iv());
+        if (metadataJson == null) {
+            files.insert(row, envelope == null ? null : envelope.wrappedKey(),
+                    envelope == null ? null : envelope.iv());
+        } else {
+            files.insert(row, envelope == null ? null : envelope.wrappedKey(),
+                    envelope == null ? null : envelope.iv(), metadataJson);
+        }
         if (parked) {
             spoolItems.insert(id, req.category(), intended, w.ref().key());
         }

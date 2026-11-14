@@ -46,14 +46,19 @@ public class FileRepository {
 
     /** Also stores the wrapped data key and iv for an encrypted file, in the same statement. */
     public void insert(FileRow f, byte[] wrappedKey, byte[] iv) {
+        insert(f, wrappedKey, iv, null);
+    }
+
+    /** As above, with the file's own metadata (JSON) for {@code files.metadata}; null leaves the default {@code {}}. */
+    public void insert(FileRow f, byte[] wrappedKey, byte[] iv, String metadataJson) {
         jdbc.update(
                 "INSERT INTO files (id, category, storage, object_key, size_bytes, sha256, "
                         + "content_type, original_name, description, region, county, uploaded_by, "
-                        + "encrypted, status, trace_id, wrapped_key, iv) "
-                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        + "encrypted, status, trace_id, wrapped_key, iv, metadata) "
+                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?::jsonb, '{}'::jsonb))",
                 f.id().toString(), f.category(), f.storage(), f.objectKey(), f.sizeBytes(),
                 f.sha256(), f.contentType(), f.originalName(), f.description(), f.region(),
-                f.county(), f.uploadedBy(), f.encrypted(), f.status(), f.traceId(), wrappedKey, iv);
+                f.county(), f.uploadedBy(), f.encrypted(), f.status(), f.traceId(), wrappedKey, iv, metadataJson);
     }
 
     /** Key material of an encrypted file; empty if the file was stored in clear. */

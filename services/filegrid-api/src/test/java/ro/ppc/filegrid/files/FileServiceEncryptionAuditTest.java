@@ -98,6 +98,13 @@ class FileServiceEncryptionAuditTest {
             savedCrypto = key == null ? null : new FileRepository.Crypto(key, iv);
             return null;
         }).when(repo).insert(any(FileRow.class), any(), any());
+        doAnswer(inv -> {
+            savedRow = inv.getArgument(0);
+            byte[] key = inv.getArgument(1);
+            byte[] iv = inv.getArgument(2);
+            savedCrypto = key == null ? null : new FileRepository.Crypto(key, iv);
+            return null;
+        }).when(repo).insert(any(FileRow.class), any(), any(), anyString());
         when(repo.find(any())).thenAnswer(inv -> Optional.ofNullable(savedRow));
         when(repo.findCrypto(any())).thenAnswer(inv -> Optional.ofNullable(savedCrypto));
 
@@ -364,6 +371,61 @@ class FileServiceEncryptionAuditTest {
     // ------------------------------------------------------------------ test double
 
     /** A storage backend in memory; it records what it was told about each write. */
+    // ------------------------------------------------------------------ COMTRADE metadata
+
+    private static final String CFG = String.join("\r\n", "PLOIESTI NORD,DFR-7,1999", "3,1A,2D",
+            "1,Va,A,,V,0.01,0,0,-32768,32767,110000,110,P", "1,TRIP,,,0", "2,CB,,,0", "50", "1", "4000,200",
+            "14/11/2026,10:15:30.000000", "14/11/2026,10:15:30.250000", "ASCII", "1.0", "");
+
+    private FileReceipt uploadNamed(Category category, String name, byte[] bytes) {
+        var req = new FileService.UploadRequest(category, "banat", null, name, "application/octet-stream",
+                bytes.length, "dispatch", null);
+        return service.store(req, new ByteArrayInputStream(bytes));
+    }
+
+    @Test
+    void anOutageConfigurationFileKeepsItsStationAndFaultTime() {
+        byte[] cfg = CFG.getBytes(StandardCharsets.UTF_8);
+
+        FileReceipt receipt = uploadNamed(Category.OUTAGE, "fault.cfg", cfg);
+
+        var json = ArgumentCaptor.forClass(String.class);
+        verify(repo).insert(any(FileRow.class), any(), any(), json.capture());
+        assertThat(json.getValue()).contains("\"station\":\"PLOIESTI NORD\"").contains("\"faultTime\":\"2026-11-14T10:15:30.250Z\"");
+        assertThat(s3.objects.get(savedRow.objectKey())).as("the file itself is stored whole and unchanged").isEqualTo(cfg);
+        assertThat(receipt.sha256()).isEqualTo(sha256Hex(cfg));
+    }
+
+    @Test
+    void otherOutageFilesAndOtherCategoriesGetNoMetadata() {
+        uploadNamed(Category.OUTAGE, "fault.dat", CFG.getBytes(StandardCharsets.UTF_8));
+        uploadNamed(Category.OUTAGE, "notes.cfg", "just some text, not a configuration".getBytes(StandardCharsets.UTF_8));
+        uploadNamed(Category.DOCUMENT, "fault.cfg", CFG.getBytes(StandardCharsets.UTF_8));
+
+        verify(repo, never()).insert(any(FileRow.class), any(), any(), anyString());
+    }
+
+    @Test
+    void aLargeConfigurationFileStillStreamsAndOnlyTheStartIsRead() {
+        byte[] big = new byte[ComtradeCfg.MAX_HEAD * 3];
+        byte[] head = CFG.getBytes(StandardCharsets.UTF_8);
+        System.arraycopy(head, 0, big, 0, head.length);
+
+        FileReceipt receipt = uploadNamed(Category.OUTAGE, "record.cfg", big);
+
+        verify(repo).insert(any(FileRow.class), any(), any(), anyString());
+        assertThat(receipt.sizeBytes()).isEqualTo(big.length);
+        assertThat(s3.objects.get(savedRow.objectKey())).hasSize(big.length);
+    }
+
+    private static String sha256Hex(byte[] b) {
+        try {
+            return sha256(b);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     // ------------------------------------------------------------------ delete
 
     @Test
