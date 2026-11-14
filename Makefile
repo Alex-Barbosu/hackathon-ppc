@@ -22,6 +22,7 @@ check: ## Verify Docker and Compose are installed
 up: check ## Generate secrets if needed, build and start everything, wait until healthy
 	@./scripts/init-env.sh
 	$(COMPOSE) up -d --build --wait
+	@./scripts/wait-ready.sh
 	@echo ""
 	@echo "  FileGrid      https://$(HOST)"
 	@echo "  Grafana       https://$(HOST)/grafana   (admin password in .env)"

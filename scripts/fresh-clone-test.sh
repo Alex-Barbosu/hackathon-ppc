@@ -40,9 +40,12 @@ expect() { # expect <description> <wanted> <got>
   if [ "$3" = "$2" ]; then pass "$1 ($3)"; else fail "$1: wanted $2, got $3"; fi
 }
 
+# Its own Compose project: separate containers, networks and volumes. Exported only to the
+# commands below (this script's process); it never reaches the caller's shell.
 export COMPOSE_PROJECT_NAME="filegrid-fresh-$(date +%H%M%S)"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/filegrid-fresh.XXXXXX")
 PAUSED=""
+PAUSED_DIR=""
 
 finish() {
   rc=$?
@@ -57,9 +60,13 @@ finish() {
   fi
   if [ -n "$PAUSED" ]; then
     note "restarting the stack that was running before: $PAUSED"
-    # By container label: the clone dir is gone, and the paused stack's files live elsewhere.
-    ids=$(docker ps -aq --filter "label=com.docker.compose.project=$PAUSED" --filter status=exited)
-    if [ -z "$ids" ] || docker start $ids >/dev/null 2>&1; then ok "$PAUSED running again"; else bad "could not restart $PAUSED: make up in its folder"; fi
+    # From its own folder with `up`, not `start`: while it was stopped the fresh stack used
+    # the same ports, and a plain start can leave the gateway without its app network.
+    if [ -d "$PAUSED_DIR" ] && (cd "$PAUSED_DIR" && env -u COMPOSE_PROJECT_NAME docker compose -p "$PAUSED" up -d --wait >/dev/null 2>&1); then
+      ok "$PAUSED running again"
+    else
+      bad "could not restart $PAUSED: run make up in ${PAUSED_DIR:-its folder}"
+    fi
   fi
   exit "$rc"
 }
@@ -72,6 +79,7 @@ busy=$(docker ps --filter publish=443 --format '{{.Label "com.docker.compose.pro
 if [ -n "$busy" ]; then
   if [ "$STOP_RUNNING" = 1 ]; then
     note "pausing stack '$busy' that holds port 443 (containers stopped, data kept)"
+    PAUSED_DIR=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$(docker ps -q --filter "label=com.docker.compose.project=$busy" | head -n 1)")
     docker compose -p "$busy" stop >/dev/null 2>&1 && PAUSED=$busy
   else
     bad "port 443 is used by stack '${busy:-another container}'. Rerun with --stop-running (it is restarted afterwards)."
@@ -155,8 +163,14 @@ else
   fail "video tus upload (Location: ${loc:-none})"
 fi
 note "meter readings: the simulator has been sending since make up"
-stored=$(prom 'sum(filegrid_meter_readings_total{result="accepted"})' 0)
-[ "$stored" != "-" ] && [ "$stored" -gt 0 ] 2>/dev/null && pass "meter readings stored: $stored (gating 7)" || fail "no meter readings stored yet"
+# Prometheus scrapes every 5 s; right after make up it may not have a sample yet.
+stored=-; i=0
+while [ "$i" -lt 60 ]; do
+  stored=$(prom 'sum(filegrid_meter_readings_total{result="accepted"})' 0)
+  [ "$stored" != "-" ] && [ "$stored" -gt 0 ] 2>/dev/null && break
+  sleep 5; i=$((i + 5))
+done
+[ "$stored" != "-" ] && [ "$stored" -gt 0 ] 2>/dev/null && pass "meter readings stored: $stored (gating 7)" || fail "no meter readings stored after 60 s"
 
 step "6  Locked down (NFR security)"
 if command -v nc >/dev/null 2>&1; then
