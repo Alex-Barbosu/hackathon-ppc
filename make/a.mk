@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -39,3 +39,9 @@ a-ops-check: ## Zone A: DELETE /files/{id}, storages behind Toxiproxy (adds then
 
 a-slowlane-check: ## Zone A: big video over the slow lane (MIB=1024 LATENCY=300 LOSS=10): link breaks, upload resumes, hash equal. Clears the lane at the end
 	python3 services/filegrid-api/scripts/slowlane_check.py $(or $(MIB),1024) $(or $(LATENCY),300) $(or $(LOSS),10)
+
+a-meter-check: ## Zone A: meter reading -> meter_intervals, retries never duplicate, outage region kept (removes the rows it makes)
+	python3 services/filegrid-api/scripts/meter_check.py
+
+a-comtrade-check: ## Zone A: an outage .cfg is read at upload (station, fault time) into files.metadata; other files get none (removes what it makes)
+	python3 services/filegrid-api/scripts/comtrade_check.py

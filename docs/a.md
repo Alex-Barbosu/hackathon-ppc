@@ -670,3 +670,109 @@ Honest reading:
   in the Chaos page; that is not part of this proof.
 - The download is done on the normal port. A download that breaks cannot be resumed (the API has no range requests), so a broken
   download starts again. For the demo that is the video player's job, not the upload's.
+
+## Meter data for analysis (Section 5: meter anomalies)
+
+Asked by Zone C. A reading is now stored for analysis as well as for billing.
+
+- **Same transaction.** `MeterRepository.insertIfNew` inserts the `meter_readings` row and, only if that row is new, the reading's
+  intervals into `meter_intervals (meter_id, ts, kwh, voltage, flags)` with `ON CONFLICT (meter_id, ts) DO NOTHING`. Both run inside the
+  transaction the service already opens, so they commit together or not at all. The meter spool replay goes through the same method.
+- **Retries never duplicate.** A retry (same key, or another key for the same meter, period and seq) finds the reading and writes nothing,
+  in both tables. An interval already stored for that meter and time is kept as it is (the first value wins).
+- **A bad value never stops a reading.** The reading is the billing record, so the database never refuses it for one odd interval. An
+  interval with no timestamp or no usable `kwh`, or a `kwh` that does not fit `numeric(10,4)`, is skipped (a warning with meter id and
+  seq is logged). A `voltage` that does not fit `numeric(6,2)` is stored as null. The reading stays whole in `raw`.
+- **Columns of `meter_readings`.** `region`, `county`, `lat` and `lon` are stored as the reading sent them.
+- **`V104__backfill_meter_intervals.sql`** fills `meter_intervals` from the `raw` of the readings stored before, with the same rules.
+  Every cast is behind a JSON type check, and it is safe to run again (nothing is duplicated, no existing row changes). On the lab
+  database it ran over 10 187 readings.
+- **`files.region` for outage uploads** is stored from the upload's `region` (form field of `POST /files`, `region` in the tus metadata).
+  It is optional in the contract, so an upload that leaves it out gets null.
+
+### Proof
+
+`make a-meter-check` (live, removes the rows it makes): the same reading sent three times gives `201`, `200`, `200` and one row in
+`meter_readings` plus one row per interval; a second key for the same reading adds nothing; an overlapping reading keeps the stored
+value; a huge `kwh` is still accepted and kept whole in `raw`; no stored interval is missing from `meter_intervals`; an outage uploaded
+with `region` (POST and tus) has it in `files`.
+
+`MeterIntervalsDbTest` (9 tests, real PostgreSQL 17 through Testcontainers, the production migrations): duplicate key leaves one row in each
+table, another key for the same reading adds nothing, the two inserts roll back together, out-of-range values, a reading with no
+intervals, and the V104 backfill (readings with odd `raw`, an existing interval left unchanged, run twice). The test is skipped when
+Docker is not available, and runs in CI.
+
+### For Zone C: what the data holds and what it lacks
+
+| Need | State |
+| --- | --- |
+| `meter_intervals` rows for the anomaly view | filled for new readings and, with V104, for the old ones |
+| `meter_readings.lat` / `lon` | **null in every reading the simulator sends** (`lat: null, lon: null`). Zone B's simulator would have to send them. Zone A stores what arrives. |
+| `meter_readings.county` | filled by the simulator |
+| `files.county` (outage hotspots by county) | **no source.** The upload has no county field (not in `openapi.yaml`) and `files.county` is always null. Options: (a) add an optional `county` form field and tus metadata key to the contract, and Zone C's upload form sends it (a few lines on my side once the contract says so); (b) fill it later from the COMTRADE `.cfg` station (backlog item 18). Until then, group hotspots by `region` or by station once COMTRADE exists. |
+| `files.region` | set for uploads that send it; the web form and the chaos storm do. The 933 older outage rows with a null region come from lab scripts that did not send one. |
+| Timestamps in the simulated data | the simulator sends many readings (growing `seq`) with the **same** interval `ts`, so 10 187 readings from 19 meters hold only 19 distinct `(meter_id, ts)`: `meter_intervals` is keyed by meter and time, so it has one row each. For a useful anomaly view the simulator must advance `ts` by 15 minutes per interval across readings (Zone B). |
+
+## Documents on the FTP server are ciphertext (live proof)
+
+NFR security: a direct breach of a storage does not expose personal data. The Postgres side was proven first; `make a-doc-check` now
+also reads the document **where vsftpd keeps it** (`/home/ftpusers/filegrid/<file id>` in the `ftp` container, not through the API):
+
+| Check | Result |
+| --- | --- |
+| length of the file on the FTP disk | the original plus 16 bytes per 64 KiB segment (300 000 to 300 080) |
+| content | not the original; the personal-data marker and the name in it are not found |
+| file name on the FTP disk | the file id only, not the document name |
+| a search of the whole FTP volume for the marker | no file holds it, including documents of earlier runs |
+| through the API | the same document comes back byte-identical |
+
+The key is not on the FTP server: a per-file key is wrapped by a key derived from `FILEGRID_MASTER_KEY`, and only the wrapped key is
+stored (in Postgres). The master key is in the API's environment only.
+
+## COMTRADE metadata of outage files (backlog 18: station, fault time)
+
+An outage record usually comes as a COMTRADE pair: a `.cfg` (text: the station, the recorder, when the fault was triggered, how long the
+recording runs) and a `.dat` (the samples). When an outage upload is a `.cfg` (or a `.cff`, which holds the configuration first), the API
+reads it and stores the result in `files.metadata` (jsonb, already in the schema; no migration). The hotspot view can then count outages per
+station and per day without anyone typing anything.
+
+| Key in `files.metadata` | Meaning | Example |
+| --- | --- | --- |
+| `format` | always `comtrade` | `comtrade` |
+| `station` | station name, first line of the `.cfg` (control characters removed, at most 128 characters) | `SUBSTATION PLOIESTI NORD 110kV` |
+| `recorder` | recording device id | `DFR-7` |
+| `revision` | COMTRADE revision (`1991` when the file has none) | `1999` |
+| `analogChannels`, `digitalChannels` | channel counts | `2`, `3` |
+| `lineHz` | line frequency | `50.0` |
+| `sampleRateHz`, `samples` | first sampling rate and total samples | `4000.0`, `200` |
+| `recordingMs` | length of the recording (sum over the rates; absent for a variable rate) | `50` |
+| `startTime` | first sample, ISO-8601 | `2026-11-14T10:15:30Z` |
+| `faultTime` | the trigger point, when the fault was detected, ISO-8601 | `2026-11-14T10:15:30.250Z` |
+| `dataFormat` | `ASCII`, `BINARY`, `BINARY32` or `FLOAT32` | `ASCII` |
+
+Every key is optional except `format`: a field a file does not have is left out. Query it as `metadata ->> 'station'` and
+`(metadata ->> 'faultTime')::timestamptz`. Proposed for `contracts/db.md` (not changed here): list these keys under `files.metadata`.
+
+How it works, and what it does not do:
+
+- **Only the start is read.** The upload copies the first 256 KiB into memory while the bytes stream to storage (a `.cfg` is a few
+  kilobytes); the `.dat` samples are never read, so a large file still streams with flat memory. The stored file is the original, unchanged,
+  and its hash is of those bytes.
+- **It never fails an upload.** A `.cfg` that is not a configuration, a bad date or a cut-off file gives fewer keys or none, and the file is
+  stored like any other. Only an outage upload whose name ends in `.cfg` or `.cff` is looked at; a `.dat`, a document or a video is not.
+- **The recorder's clock is read as UTC.** A COMTRADE time has no zone unless a 2013 `time_code` line gives one, and that line is not
+  interpreted. If a recorder writes local time, `faultTime` is off by its offset.
+- **No county.** A station name is not a county, and there is no list that maps one to the other, so `files.county` stays empty. Hotspots can
+  group by `station` and by `region` today. A county needs a source: a station-to-county table (Zone C), or an optional `county` field in the
+  upload contract.
+- Files uploaded before this change have no metadata (nothing to backfill: the lab's outage files are random bytes).
+- Only `POST /files` is covered. The tus path is for video.
+
+### Proof
+
+`make a-comtrade-check` (live, deletes what it makes): a `.cfg` as outage gives the station, recorder, fault time (`10:15:30.250Z`) and
+recording length (50 ms), a view reads them, the file comes back byte-identical with the right hash; a `.dat`, a `.cfg` with no
+configuration in it and a document called `.cfg` get no metadata; a 5 MiB `.cff` is read from its start, with hash and size of the whole file.
+
+Unit tests: 14 for the parser (1991 and 1999 layouts, several sample rates, variable rate, `.cff`, cut-off head, UTF-8 and Latin-1 names, bad
+dates, nanoseconds, random bytes never throw), 3 at service level, and 2 on a real PostgreSQL (`FileMetadataDbTest`, run in CI).
