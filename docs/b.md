@@ -417,12 +417,8 @@ Start by telling me in a few lines what changed on main since your last known st
 - **Zone A (bug):** a write to `db` storage (fallback, or `X-FileGrid-Force-Storage: db`)
   fails: `stored_blobs` is inserted before the `files` row, so its foreign key
   (`stored_blobs_file_id_fkey`) rejects it. This also blocks the outage fallback.
-- **Zone A (network chaos):** filegrid-api connects to `postgres:5432`, `seaweedfs:8333`
-  and `ftp:21` directly, so `/chaos/network` on `db`/`s3`/`ftp` has no effect yet. To
-  route through Toxiproxy, set `PG_URL=jdbc:postgresql://toxiproxy:15432/filegrid` and
-  `S3_ENDPOINT=http://toxiproxy:18333` in `services/filegrid-api/compose.yml`. FTP only
-  partly: passive data connections bypass the proxy, so only the control channel slows.
-  The `client` target (slow lane) works today.
+- ~~**Zone A (network chaos):** route storages through Toxiproxy.~~ Done: Postgres and S3
+  in zone A's #33, FTP in zone B's `zone-b/ftp-toxiproxy` (see *FTP through Toxiproxy*).
 - **Zone C:** the chaos panel can call `/chaos/*` with the admin session's token. Every
   action answers 202 with the full `ChaosState`, including `log` for the timeline.
 - **Zone A:** documents are stored with `encrypted: false` although the policy says
@@ -626,6 +622,45 @@ it. They answered `ready` 15 s later. So the check needs a start period, not a f
 
 `make reset && make up`: exit 0 in **42 s** (same as before), all 16 services with a check
 `healthy`, FileGrid reached the three storages 15 s later.
+
+## FTP through Toxiproxy (branch `zone-b/ftp-toxiproxy`)
+
+Before, `POST /chaos/network {"target":"ftp"}` had no effect: filegrid-api reached `ftp:21`
+directly. Zone A routed Postgres and S3 through Toxiproxy in #33 and left FTP to zone B:
+file bytes move on passive data connections (ports 30000-30009), not on the control port.
+
+- `infra/toxiproxy/toxiproxy.json`: ten proxies `ftp_pasv_3000N`, listen `:3000N` →
+  `ftp:3000N`, one to one. vsftpd announces port N; Commons Net replaces the private address
+  in the PASV reply with the control host (toxiproxy), so the data connection lands on the
+  proxy for the same port. vsftpd's `pasv_promiscuous=NO` still holds: control and data
+  both arrive from toxiproxy's IP.
+- `.env.example`: `FILEGRID_FTP_HOST=toxiproxy`, `FILEGRID_FTP_PORT=12121` (zone A's
+  compose reads them, no code change). `make up` appends them to an existing `.env`.
+- chaos-control puts the same toxics on the control proxy and all ten passive proxies. A
+  unit test checks every proxy name it uses exists in the seed, with the right ports.
+- Toxiproxy now mounts `infra/toxiproxy/` as a directory. The single-file mount kept the
+  old seed after the file changed, so the new proxies were missing until the container
+  was recreated by hand.
+
+Evidence, 1 MB documents:
+
+| Condition on `ftp` | Upload | Stored on | Download |
+| --- | --- | --- | --- |
+| none (through the proxy) | 144-171 ms | ftp | 200, byte-identical |
+| 100 ms latency | 1.76 s | ftp | 200 in 2.9 s, byte-identical |
+| 400 ms latency + 4000 kbit/s | 8.7 s, then **503** | — | — |
+| same, next upload | 74 ms | **s3** (fallback, circuit open) | 200, byte-identical |
+| after `/chaos/reset` | FileGrid saw ftp again after 12 s | | earlier files 200 in 0.39 s, byte-identical |
+
+The 503 at 400 ms: a document write makes many FTP round trips (TLS on control and data,
+`.part` write, verify, rename), so 400 ms each adds up past the API's timeout. That opens the
+circuit and the next document goes to the S3 fallback. This proves the resilience claim, but
+for the demo use **`latencyMs` 100** on `ftp` (measured) to show a slow transfer that still lands.
+Zone A: a write that times out returns 503 to the client instead of falling back to S3 on
+the spot; only the next one falls back. Worth a look if the fallback should catch the first.
+
+`make fresh-test` on this branch: **43 passed, 0 failed** (document stored in ftp through
+the proxy, byte-identical). `make b-test`: 11 + 9 passed.
 
 ## Contract change proposals (for the humans to raise)
 

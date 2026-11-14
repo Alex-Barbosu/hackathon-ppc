@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type { Region, UploadCategory } from "../../lib/domain";
+import { COUNTIES, type County, type Region, type UploadCategory } from "../../lib/domain";
 
 interface UploadForm {
   category: UploadCategory;
   region: Region;
+  county: County | null;
   file: File | null;
   setCategory: (category: UploadCategory) => void;
   setRegion: (region: Region) => void;
+  setCounty: (county: County | null) => void;
   setFile: (file: File | null) => void;
 }
 
@@ -14,8 +16,11 @@ interface UploadForm {
 export const useUploadForm = create<UploadForm>((set) => ({
   category: "outage",
   region: "muntenia",
+  county: null,
   file: null,
   setCategory: (category) => set({ category, file: null }),
-  setRegion: (region) => set({ region }),
+  // The API refuses a county outside its region, so a region change drops a county that no longer fits.
+  setRegion: (region) => set((s) => ({ region, county: COUNTIES.some((c) => c.id === s.county && c.region === region) ? s.county : null })),
+  setCounty: (county) => set({ county }),
   setFile: (file) => set({ file }),
 }));

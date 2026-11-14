@@ -2,5 +2,15 @@
   { "name": "client_slowlane", "listen": "0.0.0.0:8443", "upstream": "caddy:443", "enabled": true },
   { "name": "pg", "listen": "0.0.0.0:15432", "upstream": "postgres:5432", "enabled": true },
   { "name": "s3", "listen": "0.0.0.0:18333", "upstream": "seaweedfs:8333", "enabled": true },
-  { "name": "ftp", "listen": "0.0.0.0:12121", "upstream": "ftp:21", "enabled": true }
+  { "name": "ftp", "listen": "0.0.0.0:12121", "upstream": "ftp:21", "enabled": true },
+  { "name": "ftp_pasv_30000", "listen": "0.0.0.0:30000", "upstream": "ftp:30000", "enabled": true },
+  { "name": "ftp_pasv_30001", "listen": "0.0.0.0:30001", "upstream": "ftp:30001", "enabled": true },
+  { "name": "ftp_pasv_30002", "listen": "0.0.0.0:30002", "upstream": "ftp:30002", "enabled": true },
+  { "name": "ftp_pasv_30003", "listen": "0.0.0.0:30003", "upstream": "ftp:30003", "enabled": true },
+  { "name": "ftp_pasv_30004", "listen": "0.0.0.0:30004", "upstream": "ftp:30004", "enabled": true },
+  { "name": "ftp_pasv_30005", "listen": "0.0.0.0:30005", "upstream": "ftp:30005", "enabled": true },
+  { "name": "ftp_pasv_30006", "listen": "0.0.0.0:30006", "upstream": "ftp:30006", "enabled": true },
+  { "name": "ftp_pasv_30007", "listen": "0.0.0.0:30007", "upstream": "ftp:30007", "enabled": true },
+  { "name": "ftp_pasv_30008", "listen": "0.0.0.0:30008", "upstream": "ftp:30008", "enabled": true },
+  { "name": "ftp_pasv_30009", "listen": "0.0.0.0:30009", "upstream": "ftp:30009", "enabled": true }
 ]

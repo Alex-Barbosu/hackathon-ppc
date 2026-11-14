@@ -38,7 +38,8 @@ public class FileRepository {
             rs.getString("status"),
             rs.getString("trace_id"),
             toOdt(rs.getTimestamp("created_at")),
-            toOdt(rs.getTimestamp("last_verified_at")));
+            toOdt(rs.getTimestamp("last_verified_at")),
+            rs.getString("metadata"));
 
     public void insert(FileRow f) {
         insert(f, null, null);
@@ -81,10 +82,19 @@ public class FileRepository {
      * ({@code stored} or still {@code spooled}, never {@code corrupt}). Region null matches region null.
      */
     public Optional<FileRow> findDuplicate(String category, String sha256, long sizeBytes, String region) {
+        return findDuplicate(category, sha256, sizeBytes, region, null);
+    }
+
+    /**
+     * As above, and the same county: the same recording filed for two counties is two outages on the hotspot map,
+     * so merging them would lose one.
+     */
+    public Optional<FileRow> findDuplicate(String category, String sha256, long sizeBytes, String region, String county) {
         List<FileRow> rows = jdbc.query(
                 "SELECT * FROM files WHERE category = ? AND sha256 = ? AND size_bytes = ? "
-                        + "AND region IS NOT DISTINCT FROM ? AND status IN ('stored', 'spooled') "
-                        + "ORDER BY created_at, id LIMIT 1", MAPPER, category, sha256, sizeBytes, region);
+                        + "AND region IS NOT DISTINCT FROM ? AND county IS NOT DISTINCT FROM ? "
+                        + "AND status IN ('stored', 'spooled') "
+                        + "ORDER BY created_at, id LIMIT 1", MAPPER, category, sha256, sizeBytes, region, county);
         return rows.stream().findFirst();
     }
 
@@ -113,6 +123,11 @@ public class FileRepository {
      */
     public SearchResult search(String category, String q, String region,
                                OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        return search(category, q, region, null, from, to, page, size);
+    }
+
+    public SearchResult search(String category, String q, String region, String county,
+                               OffsetDateTime from, OffsetDateTime to, int page, int size) {
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> args = new ArrayList<>();
         if (category != null) {
@@ -122,6 +137,10 @@ public class FileRepository {
         if (region != null) {
             where.append(" AND region = ?");
             args.add(region);
+        }
+        if (county != null) {
+            where.append(" AND county = ?");
+            args.add(county);
         }
         if (q != null && !q.isBlank()) {
             where.append(" AND (original_name ILIKE ? OR description ILIKE ?)");

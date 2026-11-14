@@ -116,7 +116,9 @@ services:
     ports:
       - "8443:8443"   # slow lane: https://localhost:8443 = the gateway through degradable network
     volumes:
-      - ./toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+      # The directory, not the file: a single-file bind mount pins the inode, so after a
+      # `git pull` that adds proxies the container would still read the old seed.
+      - ./toxiproxy:/config:ro
     networks: [edge, app, data]
     restart: unless-stopped
 

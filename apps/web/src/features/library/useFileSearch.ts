@@ -1,17 +1,18 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { create } from "zustand";
 import { api } from "../../api/client";
-import type { Category, Region } from "../../lib/domain";
+import type { Category, County, Region } from "../../lib/domain";
 
 export interface Filters {
   category: Category | "";
   region: Region | "";
+  county: County | "";
   q: string;
   from: string;
   to: string;
 }
 
-const EMPTY: Filters = { category: "", region: "", q: "", from: "", to: "" };
+const EMPTY: Filters = { category: "", region: "", county: "", q: "", from: "", to: "" };
 
 interface FilterStore {
   filters: Filters;
@@ -41,6 +42,7 @@ export function useFileSearch() {
           query: {
             category: filters.category || undefined,
             region: filters.region || undefined,
+            county: filters.county || undefined,
             q: filters.q || undefined,
             from: startOfDay(filters.from),
             to: endOfDay(filters.to),

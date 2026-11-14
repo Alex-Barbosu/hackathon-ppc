@@ -72,7 +72,7 @@ class AuthWebTest {
 
     @BeforeEach
     void stubs() {
-        when(fileRepository.search(any(), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(fileRepository.search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new FileRepository.SearchResult(List.of(), 0));
         when(meterService.ingest(any(), any(), any()))
                 .thenReturn(new MeterService.Ingested(MeterService.Result.ACCEPTED, false));
