@@ -1,11 +1,11 @@
-# Zone B. Targets the mock API until zone A ships ingest; then set in .env:
-#   METER_TARGET_URL=http://filegrid-api:8080/api/v1/meter-readings
+# Zone B. Sends to the real ingest API. To build against the Prism mock instead, set in .env:
+#   METER_TARGET_URL=http://mock-api:4010/api/v1/meter-readings
 # Rate changes live without a restart: POST http://meter-simulator:9100/rate (internal only).
 services:
   meter-simulator:
     build: .
     environment:
-      METER_TARGET_URL: ${METER_TARGET_URL:-http://mock-api:4010/api/v1/meter-readings}
+      METER_TARGET_URL: ${METER_TARGET_URL:-http://filegrid-api:8080/api/v1/meter-readings}
       METER_DEVICE_TOKEN: ${METER_DEVICE_TOKEN:?run make up to generate .env}
       METER_COUNT: ${METER_COUNT:-500}
       READINGS_PER_SEC: ${METER_READINGS_PER_SEC:-1}
@@ -15,6 +15,10 @@ services:
       # under a new key (see docs/b.md, "Meter simulator").
       - meter-sim-data:/data
     networks: [app]
+    depends_on:
+      # Not required for correctness (readings wait and retry), but avoids a burst of
+      # retries on every cold start while the API boots.
+      filegrid-api: { condition: service_healthy }
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:9100/health"]
       interval: 5s

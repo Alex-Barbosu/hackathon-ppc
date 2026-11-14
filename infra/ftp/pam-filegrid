@@ -1,0 +1,5 @@
+# Zone B. Password check against /etc/shadow only. Debian's stock vsftpd profile also
+# requires a login shell (pam_shells), which a no-shell service account must not have.
+auth    required pam_unix.so
+account required pam_unix.so
+session required pam_permit.so

@@ -49,7 +49,7 @@ export function loadConfig(env: Env = process.env): Config {
   if (minKb > maxKb) throw new Error("METER_FILE_MIN_KB must not exceed METER_FILE_MAX_KB");
   return {
     port: num(env, "PORT", 9100, 1, 65535),
-    targetUrl: env.METER_TARGET_URL || "http://mock-api:4010/api/v1/meter-readings",
+    targetUrl: env.METER_TARGET_URL || "http://filegrid-api:8080/api/v1/meter-readings",
     deviceToken: env.METER_DEVICE_TOKEN || "dev-device-token",
     meterCount: Math.floor(num(env, "METER_COUNT", 500, 1, 1_000_000)),
     readingsPerSec: num(env, "READINGS_PER_SEC", 1, 0, MAX_RATE),
