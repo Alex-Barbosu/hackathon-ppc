@@ -94,6 +94,20 @@ public class PolicyService {
             throw new PolicyValidationException(problems);
         }
 
+        // The schema cannot compare two fields. A fallback that is the primary is no fallback: the write would
+        // fail again on the same storage. (It also goes for the file, so a hand edit is held to the same rule.)
+        List<String> same = new ArrayList<>();
+        node.path("categories").fields().forEachRemaining(e -> {
+            String primary = e.getValue().path("primary").asText(null);
+            if (primary != null && primary.equals(e.getValue().path("fallback").asText(null))) {
+                same.add("$.categories." + e.getKey() + ".fallback: fallback must differ from primary");
+            }
+        });
+        if (!same.isEmpty()) {
+            same.sort(String::compareTo);
+            throw new PolicyValidationException(same);
+        }
+
         try {
             return json.treeToValue(node, Policy.class);
         } catch (IOException e) {

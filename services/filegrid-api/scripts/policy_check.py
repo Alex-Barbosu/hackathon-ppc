@@ -96,7 +96,8 @@ dispatch = login("dispatch")
 data = random.Random(time.time()).randbytes(300_000)
 start = get_policy(admin)
 original_primary = start["categories"]["outage"]["primary"]
-other = "db" if original_primary != "db" else "s3"
+# Any storage that is neither the current primary nor the outage fallback (a fallback may not be the primary).
+other = next(x for x in ("ftp", "s3", "db") if x not in (original_primary, start["categories"]["outage"]["fallback"]))
 print(f"Starting policy: version {start['version']}, outage goes to {original_primary}")
 
 print("1. Who may read and change it")
@@ -120,6 +121,13 @@ spool_primary["categories"]["meter"]["primary"] = "spool"
 status, _, _ = put_policy(admin, spool_primary)
 check("spool as a primary is refused (400)", status == 400)
 check("and the policy in force did not change", get_policy(admin)["version"] == start["version"])
+same = copy.deepcopy(start)
+same["categories"]["document"]["primary"] = "s3"
+same["categories"]["document"]["fallback"] = "s3"
+status, _, body = put_policy(admin, same)
+check("a fallback that is the primary is refused (400) and says so",
+      status == 400 and b"fallback must differ from primary" in body, body.decode()[:120])
+check("and the policy in force still did not change", get_policy(admin)["version"] == start["version"])
 
 print("2. PUT /policy takes effect at once")
 status, r = upload_outage(dispatch, data)

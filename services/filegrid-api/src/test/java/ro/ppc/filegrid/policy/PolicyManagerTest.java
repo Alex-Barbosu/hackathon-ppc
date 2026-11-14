@@ -95,7 +95,7 @@ class PolicyManagerTest {
     @Test
     void anAppliedPolicyOutranksTheFileAfterARestart() throws Exception {
         manager.bootstrap();
-        manager.apply(body("outage:   { primary: s3,", "outage:   { primary: db,"), "admin");
+        manager.apply(body("outage:   { primary: s3,", "outage:   { primary: ftp,"), "admin");
 
         // A new process: it reads the file again (still saying s3), but the database has version 2.
         PolicyService fresh = new PolicyService(file.toString());
@@ -103,7 +103,7 @@ class PolicyManagerTest {
         new PolicyManager(fresh, store, audit, new RollbackTx(store)).bootstrap();
 
         assertThat(fresh.current().version()).isEqualTo(2);
-        assertThat(fresh.current().categories().get("outage").primary()).isEqualTo("db");
+        assertThat(fresh.current().categories().get("outage").primary()).isEqualTo("ftp");
         assertThat(store.versions).as("and no extra version was written").hasSize(2);
     }
 
@@ -126,12 +126,12 @@ class PolicyManagerTest {
     void aValidChangeIsAppliedAtOnceAsTheNextVersion() throws Exception {
         manager.bootstrap();
 
-        Policy applied = manager.apply(body("outage:   { primary: s3,", "outage:   { primary: db,"), "admin");
+        Policy applied = manager.apply(body("outage:   { primary: s3,", "outage:   { primary: ftp,"), "admin");
 
         assertThat(applied.version()).isEqualTo(2);
-        assertThat(applied.categories().get("outage").primary()).isEqualTo("db");
+        assertThat(applied.categories().get("outage").primary()).isEqualTo("ftp");
         assertThat(inForce()).as("in force without a restart").isEqualTo(applied);
-        assertThat(inForce().categories().get("outage").primaryStorage()).isEqualTo(Storage.DB);
+        assertThat(inForce().categories().get("outage").primaryStorage()).isEqualTo(Storage.FTP);
         assertThat(store.versions.get(1).appliedBy()).isEqualTo("admin");
     }
 
@@ -283,11 +283,11 @@ class PolicyManagerTest {
     void aValidEditOfTheFileIsAppliedAsANewVersionWithoutARestart() throws Exception {
         manager.bootstrap();
 
-        editFile(FILE.replace("outage:   { primary: s3,", "outage:   { primary: db,"), 2_000_000);
+        editFile(FILE.replace("outage:   { primary: s3,", "outage:   { primary: ftp,"), 2_000_000);
         manager.sync();
 
         assertThat(inForce().version()).isEqualTo(2);
-        assertThat(inForce().categories().get("outage").primary()).isEqualTo("db");
+        assertThat(inForce().categories().get("outage").primary()).isEqualTo("ftp");
         assertThat(store.versions.get(1).appliedBy()).isEqualTo("file");
         // Once when the first policy was recorded at start, once for this edit.
         verify(audit, org.mockito.Mockito.times(2)).append(eq("file"), eq("policy.update"), isNull(), any());

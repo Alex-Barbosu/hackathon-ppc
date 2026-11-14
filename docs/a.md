@@ -631,3 +631,13 @@ data to slow down; today it targets only `ftp`, which slows the control channel.
 Unit tests: 9 new: the monitor (a hung probe is down after 1 s and does not hold back the others, a stuck probe is not restarted,
 `snapshot()` never waits), delete (bytes, row and audit together, no audit event for an unaudited category, audit failure refuses,
 unreachable storage keeps the row, 404) and the access rule.
+
+### Policy rule: the fallback must differ from the primary
+
+`PUT /api/v1/policy` (and an edit of `config/policy.yaml`) now refuses a category whose `fallback` is its `primary`, with
+`400 BAD_REQUEST` and `policy failed schema validation: $.categories.<category>.fallback: fallback must differ from primary`. Each
+category that breaks the rule is named. A write that fails on a storage would only be retried on the same storage, so such a policy
+has no fallback at all. The Storage Lab applied `document` as `s3`/`s3` before this and the API took it. The JSON schema cannot compare
+two fields, so the check is in `PolicyService.validate`, which both the file and the API go through. The policy in force is not
+changed by a refused request. `make a-policy-check` covers it. Unit tests: 3 new (service); 3 existing manager tests that
+used `outage` `db`/`db` now use `ftp`.

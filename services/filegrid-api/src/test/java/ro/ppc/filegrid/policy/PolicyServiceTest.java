@@ -57,6 +57,33 @@ class PolicyServiceTest {
     }
 
     @Test
+    void rejectsAFallbackThatIsThePrimary() {
+        String bad = VALID.replace("primary: ftp, fallback: s3", "primary: s3,  fallback: s3");
+        assertThat(bad).isNotEqualTo(VALID);
+
+        assertThatThrownBy(() -> service.loadAndValidate(bad))
+                .isInstanceOf(PolicyValidationException.class)
+                .hasMessageContaining("fallback must differ from primary")
+                .hasMessageContaining("categories.document.fallback");
+    }
+
+    @Test
+    void everyCategoryWithTheSameFallbackIsNamed() throws Exception {
+        var mapper = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper();
+        String bad = VALID.replace("primary: ftp, fallback: s3", "primary: s3,  fallback: s3")
+                .replace("primary: s3,  fallback: db", "primary: db,  fallback: db");
+
+        assertThatThrownBy(() -> service.validate(mapper.readTree(bad)))
+                .isInstanceOfSatisfying(PolicyValidationException.class, e ->
+                        assertThat(e.problems()).hasSize(2));
+    }
+
+    @Test
+    void aSpoolFallbackForAnotherStorageIsStillFine() {
+        assertThat(service.loadAndValidate(VALID).categories().get("meter").fallback()).isEqualTo("spool");
+    }
+
+    @Test
     void rejectsMissingCategory() {
         String bad = """
                 version: 1
