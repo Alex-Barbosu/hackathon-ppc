@@ -172,6 +172,8 @@ the creation extension, at the paths in `contracts/openapi.yaml`. Same bearer to
   length.
 - `Upload-Length` is required (no defer-length). Over the policy `maxSizeMb` gives `413`.
 - No termination (`DELETE`) extension: it is not in the contract. Abandoned uploads expire instead.
+- A category whose policy has `encrypt: true` or `audit: true` is refused on tus (`400`, use `POST /files`): this
+  path does not encrypt or audit yet, and accepting it would break the policy without saying so.
 - No per-category limit on concurrent uploads yet (backlog item 12). Each active chunk holds one 16 MB buffer.
 
 ### Proof (`make a-tus-check`, macOS, through Caddy)
@@ -194,3 +196,71 @@ second replica taking over, a lost leftover, an S3 outage and expiry.
 
 If S3 finishes the multipart upload and the database write that follows fails, the client's retry cannot complete
 (S3 no longer has the upload). It needs a manual check of the object. Rare; not handled yet.
+
+## Document encryption and audit log (branch `zone-a/encryption-and-audit`)
+
+Backlog items 9 and 10. Both follow the policy file, not the category name: `encrypt: true` encrypts, `audit: true`
+audits. Today that is `document` only.
+
+### Encryption (AES-256-GCM, envelope)
+
+- Every file gets its own random 256-bit data key and a random 7-byte `iv`. The data key is stored wrapped
+  (AES-256-GCM, file id as authenticated data) under a key derived from `FILEGRID_MASTER_KEY`.
+  `files.wrapped_key` = `0x01 | nonce(12) | sealed key(48)` (61 bytes; `0x01` is the master key version).
+  `files.iv` = the 7 bytes. A wrapped key copied onto another row does not open.
+- The file is sealed in 64 KiB segments, each AES-GCM, so upload and download stream with fixed memory.
+  The segment nonce is `iv | segment number | last-segment flag`, and the file id is authenticated data. So a cut,
+  extended, reordered or moved file fails authentication, not only a flipped byte.
+- Encryption happens before the bytes reach any backend, so it holds for FTP, S3 and the database alike, including
+  when an admin forces a storage. Storage is told the length of the ciphertext and a generic content type.
+- `files.sha256` and `size_bytes` are of the ORIGINAL bytes (contract). The hash is taken while the bytes stream in,
+  before encryption. On download the file is decrypted and hashed again, so the proof is the same as for a clear file.
+  A failed decryption is reported exactly like a hash mismatch: `422 INTEGRITY_FAILED`, the metric, `status=corrupt`.
+- `FILEGRID_MASTER_KEY` must be 64 hex characters or the API refuses to start. Files stored before a policy change
+  keep the setting they were stored with (`files.encrypted`).
+- File names stay in `files.original_name` in clear: search needs them. Only the bytes are protected.
+
+### Audit log (hash chain)
+
+- Table `audit_log` (contract). For a category with `audit: true`, these events are written: `file.write`,
+  `file.read`, `file.read_denied` (integrity failure), `file.verify`, `file.metadata` (GET one file),
+  `file.download_link`. Not audited: search results (`GET /files`).
+- `hash = sha256(prev_hash + event_json)`. `event_json` is compact JSON with sorted keys:
+  `action, actor, at, details, file_id`; `at` is microseconds since the epoch. The first row's `prev_hash` is 64 zeros.
+  Details hold only category, storage, size, hash, result and flags: never a file name or content.
+- Several replicas write at once, so each append takes a Postgres advisory lock for its transaction and reads the
+  latest hash. A write's file row and its audit event commit in one transaction.
+- **Fails closed.** A read is audited before the first byte is released; if the log cannot be written, the read is
+  refused (`503`). If a write's event cannot be written, the upload is rolled back and its bytes removed.
+- Append only: triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` (migration `V102`). The table owner can drop a
+  trigger, which is why the chain exists: that edit breaks it. `make a-audit-check` recomputes the chain in Python,
+  independently of the service. `AuditChainTest` pins one reference event and hash so the two cannot drift apart.
+- Limit: a chain shows an edit or a removal in the middle, but if the newest rows are deleted the rest still verify.
+  Catching that needs the latest hash copied somewhere else from time to time. Not built.
+
+### Fix found while testing: files in the database never worked on the policy path
+
+`stored_blobs.file_id` has a foreign key to `files`, but the blob was written before the `files` row (the hash is only
+known after streaming), so every database write failed. The first PR's tests used fakes, and the meter path does not
+use `DbStorage`, so it went unnoticed. Now `V103` makes the key check run at commit and a database file is written as
+one transaction (blob + row + audit event). FTP and S3 files are written first and their row after, as before.
+
+### Proof (`make a-doc-check TAMPER=1`, through Caddy)
+
+| Check | Result |
+| --- | --- |
+| Document read straight from `stored_blobs` | no `PERSONAL-DATA` or `Popescu` in the bytes; length = original + 16 per segment |
+| `files` row | `encrypted = t`, wrapped key 61 bytes, iv 7 bytes |
+| Download / download link | identical bytes; `X-Content-SHA256` is the original's hash |
+| One bit flipped in storage | `422 INTEGRITY_FAILED`, `filegrid_integrity_failures_total` 0 to 1, verify `actual=decryption-failed` |
+| Bit restored | reads again |
+| Audit events for the file | write, read, read_denied, verify, download_link all present, no name or content |
+| Chain recomputed in Python | 8 rows OK; plain `UPDATE` refused |
+| Trigger disabled, one row edited | chain breaks at that row; restored, verifies again |
+
+Not proven live: the document on FTP. The zone B FTP image does not run on Apple Silicon, so the check uses the
+database (admin `X-FileGrid-Force-Storage: db`). The encryption is the same for every backend (`FileServiceEncryptionAuditTest`).
+
+Unit tests: 48 new (131 in all): `EnvelopeCryptoTest` (every size, flipped byte anywhere, cut at a segment boundary,
+extra bytes, swapped segments, wrong file id, wrong or altered key, a 40 MB stream), `AuditChainTest`,
+`FileServiceEncryptionAuditTest` (ciphertext in storage, audit before release, fail closed, rollback, transactions).

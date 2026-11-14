@@ -41,15 +41,29 @@ public class FileRepository {
             toOdt(rs.getTimestamp("last_verified_at")));
 
     public void insert(FileRow f) {
+        insert(f, null, null);
+    }
+
+    /** Also stores the wrapped data key and iv for an encrypted file, in the same statement. */
+    public void insert(FileRow f, byte[] wrappedKey, byte[] iv) {
         jdbc.update(
                 "INSERT INTO files (id, category, storage, object_key, size_bytes, sha256, "
                         + "content_type, original_name, description, region, county, uploaded_by, "
-                        + "encrypted, status, trace_id) "
-                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        + "encrypted, status, trace_id, wrapped_key, iv) "
+                        + "VALUES (?::uuid,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 f.id().toString(), f.category(), f.storage(), f.objectKey(), f.sizeBytes(),
                 f.sha256(), f.contentType(), f.originalName(), f.description(), f.region(),
-                f.county(), f.uploadedBy(), f.encrypted(), f.status(), f.traceId());
+                f.county(), f.uploadedBy(), f.encrypted(), f.status(), f.traceId(), wrappedKey, iv);
     }
+
+    /** Key material of an encrypted file; empty if the file was stored in clear. */
+    public Optional<Crypto> findCrypto(UUID id) {
+        return jdbc.query("SELECT wrapped_key, iv FROM files WHERE id = ?::uuid AND wrapped_key IS NOT NULL",
+                (rs, i) -> new Crypto(rs.getBytes("wrapped_key"), rs.getBytes("iv")), id.toString())
+                .stream().findFirst();
+    }
+
+    public record Crypto(byte[] wrappedKey, byte[] iv) {}
 
     public Optional<FileRow> find(UUID id) {
         List<FileRow> rows = jdbc.query(

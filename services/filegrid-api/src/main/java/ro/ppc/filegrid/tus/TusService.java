@@ -79,6 +79,13 @@ public class TusService {
             throw ApiException.badRequest("category " + category.slug()
                     + " is not stored in s3, use POST /api/v1/files");
         }
+        if (cp.encrypt() || cp.auditEnabled()) {
+            // This path does not encrypt or audit yet. Accepting the upload would quietly break
+            // the policy, so refuse it and let the client use POST /files.
+            throw ApiException.badRequest("category " + category.slug()
+                    + " requires encryption or auditing, which resumable upload does not support yet,"
+                    + " use POST /api/v1/files");
+        }
         if (length <= 0) {
             throw ApiException.badRequest("Upload-Length must be greater than 0");
         }

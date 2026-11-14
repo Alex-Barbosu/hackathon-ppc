@@ -2,6 +2,7 @@ package ro.ppc.filegrid.auth;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -263,8 +264,8 @@ class AuthWebTest {
     @Test
     void aDownloadLinkStreamsTheFileWithoutABearerHeader() throws Exception {
         UUID id = UUID.randomUUID();
-        when(fileService.metadata(id)).thenReturn(row(id));
-        when(fileService.openForDownload(id)).thenReturn(new FileService.DownloadStream(
+        when(fileService.mintLinkFor(eq(id), any())).thenReturn(row(id));
+        when(fileService.openForDownload(eq(id), any())).thenReturn(new FileService.DownloadStream(
                 new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)), "ab".repeat(32), 5, "text/plain"));
 
         String body = mvc.perform(post("/api/v1/files/" + id + "/download-link")
@@ -286,7 +287,7 @@ class AuthWebTest {
     @Test
     void aDownloadLinkDoesNotWorkForAnotherFile() throws Exception {
         UUID id = UUID.randomUUID();
-        when(fileService.metadata(id)).thenReturn(row(id));
+        when(fileService.mintLinkFor(eq(id), any())).thenReturn(row(id));
         String url = json.readTree(mvc.perform(post("/api/v1/files/" + id + "/download-link")
                         .header("Authorization", bearer(Role.ADMIN)))
                 .andReturn().getResponse().getContentAsString()).get("url").asText();
@@ -299,7 +300,7 @@ class AuthWebTest {
     @Test
     void aDownloadTokenCannotMintAnotherLinkOrVerify() throws Exception {
         UUID id = UUID.randomUUID();
-        when(fileService.metadata(id)).thenReturn(row(id));
+        when(fileService.mintLinkFor(eq(id), any())).thenReturn(row(id));
         String url = json.readTree(mvc.perform(post("/api/v1/files/" + id + "/download-link")
                         .header("Authorization", bearer(Role.ADMIN)))
                 .andReturn().getResponse().getContentAsString()).get("url").asText();
@@ -314,7 +315,7 @@ class AuthWebTest {
     @Test
     void aDownloadLinkForAnUnknownFileIs404() throws Exception {
         UUID id = UUID.randomUUID();
-        when(fileService.metadata(id)).thenThrow(ro.ppc.filegrid.common.ApiException.notFound("no file"));
+        when(fileService.mintLinkFor(eq(id), any())).thenThrow(ro.ppc.filegrid.common.ApiException.notFound("no file"));
 
         mvc.perform(post("/api/v1/files/" + id + "/download-link").header("Authorization", bearer(Role.ADMIN)))
                 .andExpect(status().isNotFound());

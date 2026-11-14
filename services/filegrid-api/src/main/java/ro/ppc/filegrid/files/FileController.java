@@ -111,14 +111,17 @@ public class FileController {
 
     /** GET /files/{id} — metadata + receipt. */
     @GetMapping("/{id}")
-    public FileMeta metadata(@PathVariable UUID id) {
-        return FileMapper.toMeta(fileService.metadata(id), signer);
+    public FileMeta metadata(@PathVariable UUID id,
+                             @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller) {
+        return FileMapper.toMeta(fileService.readMetadata(id, caller.username()), signer);
     }
 
     /** GET /files/{id}/content — stream bytes, verifying SHA-256; 422 on mismatch. */
     @GetMapping("/{id}/content")
-    public void download(@PathVariable UUID id, HttpServletResponse response) throws Exception {
-        FileService.DownloadStream dl = fileService.openForDownload(id);
+    public void download(@PathVariable UUID id, HttpServletResponse response,
+                         @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller) throws Exception {
+        // With a download link the caller is the user the link was minted for.
+        FileService.DownloadStream dl = fileService.openForDownload(id, caller.username());
         response.setStatus(HttpStatus.OK.value());
         response.setContentType(dl.contentType() != null
                 ? dl.contentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE);
@@ -133,8 +136,9 @@ public class FileController {
 
     /** POST /files/{id}/verify — re-hash the stored object and compare. */
     @PostMapping("/{id}/verify")
-    public VerifyResult verify(@PathVariable UUID id) {
-        return fileService.verify(id);
+    public VerifyResult verify(@PathVariable UUID id,
+                               @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller) {
+        return fileService.verify(id, caller.username());
     }
 
     /**
@@ -145,7 +149,7 @@ public class FileController {
     @PostMapping("/{id}/download-link")
     public DownloadLink downloadLink(@PathVariable UUID id,
                                      @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller) {
-        FileRow row = fileService.metadata(id); // 404 for an unknown id
+        FileRow row = fileService.mintLinkFor(id, caller.username()); // 404 for an unknown id
         var link = downloadTokens.mint(id, caller.username());
         return new DownloadLink("/api/v1/files/" + id + "/content?token=" + link.token(),
                 link.expiresAt(), row.sha256());

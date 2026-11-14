@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import javax.sql.DataSource;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Component;
 import ro.ppc.filegrid.domain.Storage;
 
@@ -35,13 +36,17 @@ public class DbStorage implements StorageAdapter {
     public StoredRef write(InputStream body, String key, WriteMeta meta) throws Exception {
         // Count bytes as they stream through so we can report the stored size without buffering.
         CountingInputStream counting = new CountingInputStream(body);
-        try (Connection c = dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "INSERT INTO stored_blobs (file_id, data) VALUES (?::uuid, ?) "
-                             + "ON CONFLICT (file_id) DO UPDATE SET data = EXCLUDED.data")) {
+        // Join the caller's transaction if there is one. FileService stores a database file as one
+        // transaction (this blob + the files row), and the foreign key is checked at its commit.
+        Connection c = DataSourceUtils.getConnection(dataSource);
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO stored_blobs (file_id, data) VALUES (?::uuid, ?) "
+                        + "ON CONFLICT (file_id) DO UPDATE SET data = EXCLUDED.data")) {
             ps.setString(1, key);
             ps.setBinaryStream(2, counting);
             ps.executeUpdate();
+        } finally {
+            DataSourceUtils.releaseConnection(c, dataSource);
         }
         return new StoredRef(Storage.DB, key, counting.count());
     }
