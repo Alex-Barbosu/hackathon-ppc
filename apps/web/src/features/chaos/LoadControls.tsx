@@ -16,10 +16,14 @@ export function LoadControls({ locked }: { locked: boolean }) {
         <legend className="text-sm font-medium">Storm</legend>
         <div className="grid grid-cols-3 gap-2">
           <Select label="Storm category" hideLabel value={category} disabled={locked} options={CATS.map((c) => ({ value: c, label: c }))} onChange={setCategory} />
-          <input aria-label="Multiplier" type="number" min={1} max={50} className={`${FIELD} tabular-nums`} value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
-          <input aria-label="Duration in seconds" type="number" min={10} max={1800} className={`${FIELD} tabular-nums`} value={durationSec} onChange={(e) => setDuration(Number(e.target.value))} />
+          <label className="relative"><span className="sr-only">Multiplier</span>
+            <input type="number" min={1} max={50} className={`${FIELD} pr-8 tabular-nums`} value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
+            <span aria-hidden className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-faint">×</span></label>
+          <label className="relative"><span className="sr-only">Duration in seconds</span>
+            <input type="number" min={10} max={1800} className={`${FIELD} pr-8 tabular-nums`} value={durationSec} onChange={(e) => setDuration(Number(e.target.value))} />
+            <span aria-hidden className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-faint">s</span></label>
         </div>
-        <p className="text-[13px] text-muted">Multiplier × baseline, for the given seconds.</p>
+        <p className="text-[13px] text-muted">{multiplier} times the normal {category} rate, for {durationSec} seconds.</p>
         <PrimaryButton disabled={locked || act.isPending} onClick={() => act.mutate({ kind: "storm", category, multiplier, durationSec })}>
           Fire {category} storm ×{multiplier}
         </PrimaryButton>

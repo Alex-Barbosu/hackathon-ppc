@@ -19,7 +19,7 @@ function Body({ cell }: { cell: LabCell }) {
     return (
       <div>
         <p className={`text-sm font-medium ${calm ? "text-ink" : "text-bad"}`}>
-          {calm ? "Rejected by design" : `Failed: ${cell.errors} of ${cell.completed}`}
+          {calm ? "Not applicable" : `Failed: ${cell.errors} of ${cell.completed}`}
         </p>
         <ul className="mt-1 space-y-1 text-[13px] text-muted">
           {(cell.errorSamples.length ? [...new Set(cell.errorSamples)] : ["Storage refused the file"]).map((s) => <li key={s}>{errorText(s, cell)}</li>)}
@@ -29,9 +29,9 @@ function Body({ cell }: { cell: LabCell }) {
   }
   return (
     <dl className="space-y-1 text-sm tabular-nums">
-      <div className="flex justify-between gap-2"><dt className="text-muted">Write p95</dt><dd>{fmtMs(cell.write?.p95Ms)}</dd></div>
-      <div className="flex justify-between gap-2"><dt className="text-muted">Read p95</dt><dd>{fmtMs(cell.read?.p95Ms)}</dd></div>
-      <div className="flex justify-between gap-2"><dt className="text-muted">Throughput</dt><dd>{fmtMbps(cell.throughputMBps)}</dd></div>
+      <div className="flex justify-between gap-2"><dt className="text-muted">Save, 95% within</dt><dd>{fmtMs(cell.write?.p95Ms)}</dd></div>
+      <div className="flex justify-between gap-2"><dt className="text-muted">Read, 95% within</dt><dd>{fmtMs(cell.read?.p95Ms)}</dd></div>
+      <div className="flex justify-between gap-2"><dt className="text-muted">Upload speed</dt><dd>{fmtMbps(cell.throughputMBps)}</dd></div>
       <div className="flex justify-between gap-2"><dt className="text-muted">Errors</dt><dd className={cell.errors ? "text-bad" : ""}>{cell.errors} of {cell.completed}</dd></div>
     </dl>
   );

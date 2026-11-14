@@ -4,7 +4,7 @@ export const ROLES = [
   { id: "dispatch", label: "Dispatch", hint: "Outage records" },
   { id: "field", label: "Field", hint: "Drone video" },
   { id: "connections", label: "Connections", hint: "Customer documents" },
-  { id: "admin", label: "Admin", hint: "Policy and chaos" },
+  { id: "admin", label: "Admin", hint: "Everything, plus chaos" },
 ] as const;
 
 export function RolePicker({ value, onPick }: { value: string; onPick: (role: string) => void }) {
@@ -15,10 +15,10 @@ export function RolePicker({ value, onPick }: { value: string; onPick: (role: st
         return (
           <button key={r.id} type="button" role="radio" aria-checked={on} onClick={() => onPick(r.id)}
             className={`rounded-lg border-[0.8px] px-3 py-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-              on ? "border-white bg-white text-black" : "border-white/16 bg-black/20 text-white hover:bg-white/10"
+              on ? "border-white bg-white text-black" : "border-line bg-surface text-white hover:bg-white/10"
             }`}>
             <span className="block text-sm font-normal">{r.label}</span>
-            <span className={`block text-xs ${on ? "text-black/60" : "text-white/65"}`}>{r.hint}</span>
+            <span className={`block text-xs ${on ? "text-black/60" : "text-faint"}`}>{r.hint}</span>
           </button>
         );
       })}

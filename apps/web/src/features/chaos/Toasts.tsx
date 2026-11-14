@@ -4,7 +4,7 @@ import { useToasts } from "./toasts";
 export function Toasts() {
   const { items, dismiss } = useToasts();
   return (
-    <div aria-live="polite" className="pointer-events-none fixed top-4 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
+    <div aria-live="polite" className="pointer-events-none fixed bottom-4 left-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
       <AnimatePresence>
         {items.map((t) => (
           <motion.div key={t.id} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}

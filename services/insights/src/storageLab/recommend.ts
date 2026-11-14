@@ -25,9 +25,9 @@ function score(c: Cell, best: { w: number; r: number; t: number }): number {
 
 function chips(c: Cell): Evidence[] {
   return [
-    { label: "write p95", value: ms(c.write!.p95Ms) },
-    { label: "read p95", value: ms(c.read!.p95Ms) },
-    { label: "write", value: `${round(c.throughputMBps ?? 0)} MB/s` },
+    { label: "95% saved within", value: ms(c.write!.p95Ms) },
+    { label: "95% read within", value: ms(c.read!.p95Ms) },
+    { label: "upload speed", value: `${round(c.throughputMBps ?? 0)} MB/s` },
     { label: "errors", value: `${c.errors} of ${c.completed}` },
     { label: "SHA-256", value: "verified" },
   ];
@@ -59,20 +59,20 @@ function pickCategory(category: Category, cells: Cell[]): Pick {
   const top = ranked[0]!;
   const fastest = [...ranked].sort((a, b) => b.perf - a.perf)[0]!;
   const w = top.c.write!;
-  reasons.unshift(`${label(top.c.storage)}: write p95 ${ms(w.p95Ms)}, read p95 ${ms(top.c.read!.p95Ms)}, ${round(top.c.throughputMBps ?? 0)} MB/s, 0 errors, SHA-256 verified on every download.`);
+  reasons.unshift(`${label(top.c.storage)}: 95% saved within ${ms(w.p95Ms)}, 95% read within ${ms(top.c.read!.p95Ms)}, ${round(top.c.throughputMBps ?? 0)} MB/s, 0 errors, SHA-256 verified on every download.`);
   if (ok.length > 1) {
     const next = ranked[1]!.c;
-    reasons.push(`Next best, ${label(next.storage)}: write p95 ${ms(next.write!.p95Ms)}, read p95 ${ms(next.read!.p95Ms)}, ${round(next.throughputMBps ?? 0)} MB/s.`);
+    reasons.push(`Next best, ${label(next.storage)}: 95% saved within ${ms(next.write!.p95Ms)}, 95% read within ${ms(next.read!.p95Ms)}, ${round(next.throughputMBps ?? 0)} MB/s.`);
   } else {
     reasons.push(`${label(top.c.storage)} is the only storage that completed every ${round(top.c.sizeBytes / 1048576, 0)} MB sample.`);
   }
   if (fit?.storage === top.c.storage) {
     const beat = fastest.c.storage !== top.c.storage;
-    reasons.push(`${fit.why}${beat ? `; ${label(fastest.c.storage)} was faster on raw numbers (write p95 ${ms(fastest.c.write!.p95Ms)}), so this choice rests on that guarantee` : ""}.`);
+    reasons.push(`${fit.why}${beat ? `; ${label(fastest.c.storage)} was faster on raw numbers (95% saved within ${ms(fastest.c.write!.p95Ms)}), so this choice rests on that guarantee` : ""}.`);
   } else if (fit) {
     const lost = ranked.find((r) => r.c.storage === fit.storage);
     if (lost) {
-      reasons.push(`${label(lost.c.storage)} has the guarantee (${fit.why}) but measured write p95 ${ms(lost.c.write!.p95Ms)} and ${round(lost.c.throughputMBps ?? 0)} MB/s against ${ms(w.p95Ms)} and ${round(top.c.throughputMBps ?? 0)} MB/s, which outweighs that guarantee.`);
+      reasons.push(`${label(lost.c.storage)} has the guarantee (${fit.why}) but measured 95% saved within ${ms(lost.c.write!.p95Ms)} and ${round(lost.c.throughputMBps ?? 0)} MB/s against ${ms(w.p95Ms)} and ${round(top.c.throughputMBps ?? 0)} MB/s, which outweighs that guarantee.`);
     } else {
       reasons.push(`${label(fit.storage)} has the guarantee (${fit.why}) but did not complete the benchmark.`);
     }
@@ -118,13 +118,13 @@ function repin(p: Pick, to: Ranked, from: Ranked): void {
   const kept = label(to.c.storage);
   const faster = to.c.write!.p95Ms > from.c.write!.p95Ms;
   const reason =
-    `${label(from.c.storage)} ${faster ? "was faster" : "ranked higher"} for ${subject.noun} (write p95 ${ms(from.c.write!.p95Ms)} vs ${ms(to.c.write!.p95Ms)} on ${kept}), ` +
+    `${label(from.c.storage)} ${faster ? "was faster" : "ranked higher"} for ${subject.noun} (95% saved within ${ms(from.c.write!.p95Ms)} vs ${ms(to.c.write!.p95Ms)} on ${kept}), ` +
     `but ${subject.noun} ${subject.verb} on ${kept}: ${fit?.storage === to.c.storage ? `${asClause(fit.why)}, and ` : ""}the brief requires every storage to be in use.`;
-  const head = `${kept}: write p95 ${ms(to.c.write!.p95Ms)}, read p95 ${ms(to.c.read!.p95Ms)}, ${round(to.c.throughputMBps ?? 0)} MB/s, 0 errors, SHA-256 verified on every download.`;
+  const head = `${kept}: 95% saved within ${ms(to.c.write!.p95Ms)}, 95% read within ${ms(to.c.read!.p95Ms)}, ${round(to.c.throughputMBps ?? 0)} MB/s, 0 errors, SHA-256 verified on every download.`;
   p.rec.storage = to.c.storage;
   p.rec.reasons = [head, reason, ...p.ruledOut];
   p.rec.reason = [head, reason].join(" ");
-  p.rec.evidence = [...chips(to.c), { label: `${label(from.c.storage)} write p95`, value: ms(from.c.write!.p95Ms) }];
+  p.rec.evidence = [...chips(to.c), { label: `${label(from.c.storage)} 95% saved within`, value: ms(from.c.write!.p95Ms) }];
 }
 
 export function recommend(cells: Cell[]): Recommendation[] {

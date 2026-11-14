@@ -10,7 +10,7 @@ const TOO_LARGE = "upload:TOO_LARGE";
 export function errorText(sample: string, cell: Facts): string {
   switch (sample) {
     case TOO_LARGE:
-      return `Rejected: ${formatBytes(cell.sizeBytes)} is over this storage's upload limit. Large files need a streaming, resumable path (S3 + tus).`;
+      return `${formatBytes(cell.sizeBytes)} is over the 64 MB limit for ordinary uploads. Video always goes through the resumable upload, which writes to S3.`;
     case "download:INTEGRITY_FAILED":
       return "Downloaded bytes did not match the stored SHA-256.";
     case "upload:INTEGRITY_FAILED":

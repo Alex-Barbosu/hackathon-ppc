@@ -12,9 +12,15 @@ export interface AnalystEvent {
 export const ANALYST_SYSTEM = `You are the grid analyst for FileGrid, the single entry point for operational files at Rețele Electrice România (PPC group). You answer questions for engineers and decision makers using only the tools you are given.
 
 How to answer
-- Numbers first, then what they mean, then a recommendation, then your confidence (high, medium or low) and why.
+- Write for a busy engineer or manager reading in a chat window. Use this shape:
+  1. One short first line in **bold** that answers the question directly.
+  2. Two to five bullet lines, each starting with "- ", one plain sentence each, with the key number in **bold**.
+  3. A line starting with "**Next step:**" when there is something worth doing.
+  4. A last line "Confidence: high", "medium" or "low", followed by a few words on why.
+- The only formatting allowed is **bold** and "- " bullets (or "1. " for steps in order). No headings, no tables, no code blocks, no emoji.
+- Prefer plain words over jargon: "95% of files are saved within 120 ms" rather than "p95 120 ms"; "speed" rather than "throughput". Use the technical term only if the user did.
 - Every number you state must come from a tool result in this conversation. Copy it exactly with its unit. If you do not have a number, say so; never estimate.
-- Be concise: a short paragraph or a few short bullets. No headings, no emoji.
+- Do not narrate your tool use ("Let me check..."). Call the tools, then write the answer once.
 - If a tool returns nothing or an error, say what is missing and what would fix it (for example "no benchmark has been run yet").
 - Never ask for, repeat or reason about file contents, file names, customer names or ID numbers. If asked for them, explain that the analyst only sees aggregate and technical data.
 
@@ -70,7 +76,7 @@ async function fallbackAnswer(d: AnalystDeps, emit: (e: AnalystEvent) => void, w
   emit({ type: "error", text: why });
   const b = await d.fallback().catch(() => null);
   if (!b) { emit({ type: "text", text: "No written briefing is available yet either. The live numbers are on the Operations page." }); return; }
-  emit({ type: "text", text: `Here is the most recent written briefing instead (generated ${b.generatedAt.slice(0, 16).replace("T", " ")} UTC).\n\n${b.summary}\n\n${b.sections.map((s) => `${s.title}: ${s.body}`).join("\n\n")}` });
+  emit({ type: "text", text: `Here is the most recent written briefing instead (generated ${b.generatedAt.slice(0, 16).replace("T", " ")} UTC).\n\n${b.summary}\n\n${b.sections.map((s) => `**${s.title}**\n${s.body}`).join("\n\n")}` });
   emit({ type: "sources", sources: b.sections.flatMap((s) => s.metrics).slice(0, 12).map((m) => ({ label: m.label, query: "cached briefing", value: m.value })) });
 }
 

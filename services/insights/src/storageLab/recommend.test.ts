@@ -54,7 +54,7 @@ test("every storage stays in use: documents are kept on FTPS although S3 is fast
   assert.equal(doc.storage, "ftp");
   assert.equal(
     doc.reasons[1],
-    "S3 was faster for documents (write p95 80 ms vs 370 ms on FTPS), but documents stay on FTPS: it keeps the encrypted-document audit trail on a separate service, and the brief requires every storage to be in use.",
+    "S3 was faster for documents (95% saved within 80 ms vs 370 ms on FTPS), but documents stay on FTPS: it keeps the encrypted-document audit trail on a separate service, and the brief requires every storage to be in use.",
   );
   assert.match(doc.reason, /S3 was faster for documents/);
 });
@@ -62,8 +62,8 @@ test("every storage stays in use: documents are kept on FTPS although S3 is fast
 test("the numbers of both storages are kept as source chips", () => {
   const doc = by(recommend(matrix()), "document");
   const chips = Object.fromEntries(doc.evidence.map((e) => [e.label, e.value]));
-  assert.equal(chips["write p95"], "370 ms");
-  assert.equal(chips["S3 write p95"], "80 ms");
+  assert.equal(chips["95% saved within"], "370 ms");
+  assert.equal(chips["S3 95% saved within"], "80 ms");
 });
 
 test("the category that loses least is the one that gives way", () => {
