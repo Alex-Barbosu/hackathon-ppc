@@ -79,8 +79,14 @@ public class FileController {
 
         // The service may need the bytes again if the primary storage fails halfway (the fallback
         // starts from the beginning), so it asks for a fresh stream each time instead of being handed one.
-        FileReceipt receipt = fileService.store(req, file::getInputStream);
-        return ResponseEntity.status(HttpStatus.CREATED).body(receipt);
+        FileService.Stored stored = fileService.put(req, file::getInputStream);
+        // The same bytes as a file already stored (same category and region): its receipt, and a header to say so.
+        // The status stays 201, the only success in the contract, so no client has to learn a new one.
+        var response = ResponseEntity.status(HttpStatus.CREATED);
+        if (stored.duplicate()) {
+            response.header("X-FileGrid-Deduplicated", "true");
+        }
+        return response.body(stored.receipt());
     }
 
     /** GET /files — paged search. */

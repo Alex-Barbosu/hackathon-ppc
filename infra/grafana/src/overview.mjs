@@ -49,7 +49,7 @@ panels.push(row("Storm: does a spike in one category slow the others?", y)); y +
 const p95of = (cat) => `histogram_quantile(0.95, sum by (le) (rate(filegrid_op_duration_seconds_bucket{category="${cat}", op="write"}[$__rate_interval])))`;
 panels.push(ts("Save time, meter vs outage (95 % within)",
   "p95 of filegrid_op_duration_seconds (writes). During an outage storm the outage line may rise; the meter line must stay flat and under 0.5 s (MeterIngestLatencyHigh).",
-  { x: 0, y, w: 8, h: 8 }, [q(p95of("meter"), "meter readings"), q(p95of("outage"), "outage records"), q(p95of("document"), "documents")], "s",
+  { x: 0, y, w: 8, h: 8 }, [q(p95of("meter"), "meter readings", { exemplar: true }), q(p95of("outage"), "outage records", { exemplar: true }), q(p95of("document"), "documents", { exemplar: true })], "s",
   { overrides: [
     { matcher: { id: "byName", options: "meter readings" }, properties: [{ id: "color", value: { mode: "fixed", fixedColor: "green" } }, { id: "custom.lineWidth", value: 3 }] },
     { matcher: { id: "byName", options: "outage records" }, properties: [{ id: "color", value: { mode: "fixed", fixedColor: "orange" } }] },
@@ -99,7 +99,9 @@ y += 8;
 for (const [i, p] of [[0, 0.5], [1, 0.95], [2, 0.99]]) {
   const label = { 0.5: "Typical time (half are faster, p50)", 0.95: "Slow end (95 % are faster, p95)", 0.99: "Slowest 1 % (p99)" }[p];
   panels.push(ts(label, `histogram_quantile(${p}) of filegrid_op_duration_seconds per category × storage × op.`,
-    { x: i * 8, y, w: 8, h: 8 }, [q(quant(p), leg)], "s"));
+    // exemplar: true draws one dot per sampled request; clicking it opens that request's
+    // trace in Tempo (datasource exemplarTraceIdDestinations), and from there its logs.
+    { x: i * 8, y, w: 8, h: 8 }, [q(quant(p), leg, { exemplar: true })], "s"));
 }
 y += 8;
 // ---------------------------------------------------------------- throughput

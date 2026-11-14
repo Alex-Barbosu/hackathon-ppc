@@ -5,7 +5,8 @@
 #
 #   1 baseline        meters at 10/s, normal latencies
 #   2 outage storm    outage x10 for 60 s: meter p95 stays flat (NFR scalability)
-#   3 stop S3         outage records fall back to the database, alert StorageDown (resilience)
+#   3 stop S3         outage records fall back to the database, alert StorageDown (resilience);
+#                     start S3, wait with a countdown until FileGrid sees it, outage back on s3
 #   4 degrade network slow lane 400 ms and 5 % loss vs the direct path (resilience)
 #   5 corrupt a file  flipped byte in storage, download refused 422, alert IntegrityFailure
 #   6 reset           everything back, alerts resolve
@@ -80,6 +81,17 @@ ok "meter readings still stored: $(prom 'sum(rate(filegrid_meter_readings_total{
 note "waiting for the alert (StorageDown, 30 s confirmation)..."
 if wait_for 120 firing alert_state StorageDown; then ok "alert StorageDown firing → narrator (Operations page)"; else bad "StorageDown not firing after 120 s"; fi
 ok "storage s3 up=$(prom 'max(filegrid_storage_up{storage="s3"})' 0), circuit open=$(prom 'max(filegrid_circuit_open{storage="s3"})' 0)"
+pause "Enter: start S3 again"
+
+note "start s3 → HTTP $(chaos storages/s3/start)"
+# The next steps must not run while FileGrid still treats S3 as down: an upload would go
+# to the fallback and the story would no longer match what the dashboard shows.
+if wait_storage s3 "${DEMO_S3_WAIT:-120}"; then
+  f=$(random_file 2000000); r=$(upload "$DISPATCH" outage "$f"); rm -f "$f"
+  [ "$(printf '%s' "$r" | json_str storage)" = "s3" ] && ok "outage records go to s3 again, no restart of FileGrid" || bad "outage after S3 is back: $r"
+else
+  bad "FileGrid still sees S3 down after ${DEMO_S3_WAIT:-120} s (make logs s=filegrid-api)"
+fi
 pause "Enter: 4 degrade network"
 
 step "4  Bad link: slow lane with 400 ms latency and 5 % connection loss"
@@ -105,8 +117,7 @@ pause "Enter: 6 reset"
 
 step "6  Reset"
 note "reset → HTTP $(chaos reset)"
-up_all() { prom 'min(filegrid_storage_up)' 0; }
-if wait_for 120 1 up_all; then ok "all storages up again"; else bad "a storage is still down after 120 s"; fi
+for s in db s3 ftp; do wait_storage "$s" 120 || bad "FileGrid still sees $s down after 120 s"; done
 note "parked files move back on their own; spool now: $(prom 'sum(filegrid_spool_pending)' 0)"
 ok "slow lane back to $(timing "https://${HOST}:8443/api/v1/health"); meters back to the .env rate"
 note "alerts resolve within about 2 minutes; the narrator reports each resolution"
