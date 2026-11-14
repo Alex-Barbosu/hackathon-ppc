@@ -354,6 +354,54 @@ POSIX sh and curl only (`scripts/lib.sh`), so they run on a Mac as is.
 - The source is in the repo now: `infra/grafana/src/overview.mjs`, rebuilt with
   `make b-dashboards`.
 
+## Continue in a new session
+
+Paste the block below as the first message of a new agent session (Kiro Crew, CLI or IDE).
+Keep it current: update STATE and REMAINING BACKLOG when a PR merges.
+
+````text
+You are the engineer for ZONE B (platform and reliability) of FileGrid, a 24-hour hackathon project (Rețele Electrice România / PPC: one entry point for meter, outage, document and video files; FTP + S3 + PostgreSQL; must prove integrity and measure everything). Workspace: /home/robert/Diverse/hackathon-ppc (GitHub: Alex-Barbosu/hackathon-ppc, I am RORO123b, `gh` is logged in).
+
+READ FIRST, fully: CLAUDE.md (root), infra/CLAUDE.md (my scope and backlog), docs/b.md (everything built so far, evidence, open requests), README.md ("Quick start" and "Prove it").
+Then run `git fetch && git switch main && git pull` and look at `gh pr list --state all --limit 15`. Zones A (CalinCodes: services/filegrid-api, config/) and C (Alex-Barbosu: apps/web, services/insights) merge to main in parallel, so check what changed before you start. They may have shipped metrics or endpoints I listed as missing.
+
+HARD RULES
+- Edit ONLY: infra/**, services/meter-simulator/**, services/chaos-control/**, loadtest/**, Makefile, make/b.mk, .env.example, README.md, docs/b.md, .github/**, scripts/**.
+- Never edit contracts/, root compose.yml, or other zones' files. If I need a contract change, write the proposed diff in docs/b.md for me to raise. Never publish a storage port. The Docker socket is mounted only in chaos-control.
+- `make up` on main must keep working. Run `make reset && make up` (or `make fresh-test`) before every PR.
+- Branch `zone-b/<feature>`, ONE PR to main per feature, never stacked on another open PR (a stacked PR merged into its base branch earlier and its code never reached main). Conventional commits with the `b` scope. Each PR description lists which requirement each change proves.
+- Don't claim something works without running it. Say what you did not verify. No secrets in the repo. Comments explain WHY. TypeScript strict, no `any`.
+
+STATE (all merged to main)
+- Meter simulator (500 meters, real counties, load curve, retries with the same Idempotency-Key, state saved across restarts, normal/peak profiles). It sends through the internal Caddy listener http://caddy:8088.
+- FileGrid Overview Grafana dashboard with a Storm row and business-language titles. Its source is infra/grafana/src/overview.mjs. Regenerate with `make b-dashboards`.
+- FTPS server is vsftpd (infra/ftp). Alert rules for all 7 contract alerts with promtool tests (`make b-rules`, CI job).
+- chaos-control (all /chaos routes, admin JWT, Docker socket allowlist). Get a token with `make b-token`.
+- k6 scenarios: `make b-load S=baseline|storm-outage|video-lossy`.
+- Caddy load-balances over API replicas (`dynamic a`, no passive health, internal :8088 listener, --watch).
+- `make demo`, `make demo-scale`, `make fresh-test` (last run: 43 passed, 0 failed), `scripts/wait-ready.sh` (make up waits until FileGrid reaches all three storages), and `make up` updates stale .env defaults.
+
+REMAINING BACKLOG (infra/CLAUDE.md), in order
+1. Traces: verify that clicking a slow point on a latency panel opens its trace in Tempo (exemplars -> Tempo -> logs in Loki). Nothing has proven this yet. Fix infra/otel and the Grafana datasources if it does not work. Zone A's OTLP export is their side.
+2. Separate dashboards Meters, Storages and Storm (the Overview has these as rows). Use the existing generator and keep panel names matching contracts/metrics.md.
+3. Healthchecks for loki, tempo, mock-api, otel-collector, alertmanager and toxiproxy (backlog item 1 says healthchecks on everything). `make up --wait` must stay green.
+4. Toxiproxy on the storage paths: filegrid-api connects to postgres/seaweedfs/ftp directly, so /chaos/network on db/s3/ftp has no effect. Zone A merged a "slow-lane-proof" PR (#37): read it first, it may already cover part of this. Anything in zone A's compose file is their change: write the request in docs/b.md for me to raise with CalinCodes (PG_URL=jdbc:postgresql://toxiproxy:15432/filegrid, S3_ENDPOINT=http://toxiproxy:18333).
+5. Optional: Discord/Slack webhook receiver in Alertmanager from .env. A recorded backup of the demo. `make up-k8s` (k3d) only if everything else is green.
+6. Keep the README "Prove it" table current as A and C ship features. It is the demo script. Re-run `make fresh-test` and `make demo` against main before the deadline (Sun 15 Nov ~12:00 Bucharest).
+
+OPEN REQUESTS FOR OTHER ZONES (docs/b.md has the details): contract metrics for DocumentProtectionFailure and VideoTransferStalling (filegrid_unencrypted_writes_total, filegrid_audit_chain_failures_total, filegrid_upload_stalled); the JWT claims line for the OpenAPI security scheme; filegrid_queue_depth (zone A's bulkheads, not built; the Storm row shows requests in progress until it exists); meter_intervals never filled (zone C needs it).
+
+GOTCHAS I HIT
+- Docker Hub rate-limits anonymous pulls (100 per 6 h). If `make up` fails with "429 Too Many Requests": `docker login`, or `docker pull mirror.gcr.io/library/<image> && docker tag mirror.gcr.io/library/<image> <image>` for each base image (maven:3.9-eclipse-temurin-21, eclipse-temurin:21-jre-alpine, nginx:1.27-alpine, debian:bookworm-slim, node:22-alpine).
+- Passwords are in .env (DEMO_PASSWORD for admin/dispatch/connections/field, GRAFANA_ADMIN_PASSWORD). Never print them in logs or commit them.
+- `make fresh-test ARGS="--stop-running"` pauses an already-running stack on port 443 and restarts it afterwards.
+- A background `make b-load` job without a terminal gets suspended. Run it in the foreground or use `/chaos/storm`.
+- Don't leave COMPOSE_PROJECT_NAME exported in the shell: it makes `make up` start a second stack.
+
+HOW TO WORK
+Start by telling me in a few lines what changed on main since your last known state and your plan for item 1. Then proceed. For anything with a real choice (changing zone A's files, contract changes, dropping a backlog item), stop and ask. Keep replies short and in plain language. Report results with numbers, and say plainly what failed.
+````
+
 ## Requests to other zones
 
 - **Zone A:** `meter_intervals` stays empty; `meter_readings` is filled. Zone C's anomaly
