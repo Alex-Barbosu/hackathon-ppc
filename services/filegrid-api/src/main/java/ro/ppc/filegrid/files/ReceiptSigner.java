@@ -16,7 +16,10 @@ public class ReceiptSigner {
 
     private final byte[] key;
 
-    public ReceiptSigner(@Value("${JWT_SECRET:dev-secret}") String secret) {
+    public ReceiptSigner(@Value("${JWT_SECRET:}") String secret) {
+        if (secret == null || secret.isEmpty()) {
+            throw new IllegalStateException("JWT_SECRET must be set");
+        }
         this.key = secret.getBytes(StandardCharsets.UTF_8);
     }
 

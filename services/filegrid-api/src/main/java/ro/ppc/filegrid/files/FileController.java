@@ -15,13 +15,19 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import ro.ppc.filegrid.auth.AuthFilter;
+import ro.ppc.filegrid.auth.AuthPrincipal;
+import ro.ppc.filegrid.auth.DownloadTokenService;
 import ro.ppc.filegrid.common.ApiException;
 import ro.ppc.filegrid.domain.Category;
 import ro.ppc.filegrid.domain.Region;
+import ro.ppc.filegrid.domain.Role;
 import ro.ppc.filegrid.domain.Storage;
+import ro.ppc.filegrid.files.dto.DownloadLink;
 import ro.ppc.filegrid.files.dto.FileMeta;
 import ro.ppc.filegrid.files.dto.FileReceipt;
 import ro.ppc.filegrid.files.dto.SearchPage;
@@ -35,11 +41,14 @@ public class FileController {
     private final FileService fileService;
     private final FileRepository fileRepository;
     private final ReceiptSigner signer;
+    private final DownloadTokenService downloadTokens;
 
-    public FileController(FileService fileService, FileRepository fileRepository, ReceiptSigner signer) {
+    public FileController(FileService fileService, FileRepository fileRepository, ReceiptSigner signer,
+                          DownloadTokenService downloadTokens) {
         this.fileService = fileService;
         this.fileRepository = fileRepository;
         this.signer = signer;
+        this.downloadTokens = downloadTokens;
     }
 
     /** POST /files — multipart upload of a small file (outage, document). 201 FileReceipt. */
@@ -49,9 +58,14 @@ public class FileController {
             @RequestParam(value = "region", required = false) String region,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam("file") MultipartFile file,
-            @RequestHeader(value = "X-FileGrid-Force-Storage", required = false) String forceStorage)
+            @RequestHeader(value = "X-FileGrid-Force-Storage", required = false) String forceStorage,
+            @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller)
             throws Exception {
 
+        // Contract: the header bypasses the policy, so only an admin may send it.
+        if (forceStorage != null && caller.role() != Role.ADMIN) {
+            throw ApiException.forbidden("X-FileGrid-Force-Storage is admin only");
+        }
         Category cat = parseCategory(category);
         String reg = parseRegion(region);
         Storage force = forceStorage == null ? null : parseStorage(forceStorage);
@@ -59,7 +73,7 @@ public class FileController {
                 ? file.getContentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE;
 
         var req = new FileService.UploadRequest(cat, reg, description,
-                file.getOriginalFilename(), contentType, file.getSize(), currentUser(), force);
+                file.getOriginalFilename(), contentType, file.getSize(), caller.username(), force);
 
         try (InputStream body = file.getInputStream()) {
             FileReceipt receipt = fileService.store(req, body);
@@ -123,6 +137,20 @@ public class FileController {
         return fileService.verify(id);
     }
 
+    /**
+     * POST /files/{id}/download-link: mint a 60 s token so the browser can stream the file to
+     * disk with a plain link instead of buffering it behind a bearer header. Callable only
+     * with a session (a download token itself is refused here by AccessRules).
+     */
+    @PostMapping("/{id}/download-link")
+    public DownloadLink downloadLink(@PathVariable UUID id,
+                                     @RequestAttribute(AuthFilter.PRINCIPAL_ATTR) AuthPrincipal caller) {
+        FileRow row = fileService.metadata(id); // 404 for an unknown id
+        var link = downloadTokens.mint(id, caller.username());
+        return new DownloadLink("/api/v1/files/" + id + "/content?token=" + link.token(),
+                link.expiresAt(), row.sha256());
+    }
+
     // --- parsing helpers: a bad enum is a 400, not a 500 ---
 
     private static Category parseCategory(String s) {
@@ -150,10 +178,5 @@ public class FileController {
         } catch (IllegalArgumentException e) {
             throw ApiException.badRequest("unknown region: " + s);
         }
-    }
-
-    /** Auth arrives in the next round; until then uploads are attributed to the demo user. */
-    private static String currentUser() {
-        return "demo";
     }
 }
