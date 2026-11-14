@@ -1,6 +1,7 @@
 package ro.ppc.filegrid.meters;
 
 import jakarta.validation.Valid;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ro.ppc.filegrid.common.ApiException;
+import ro.ppc.filegrid.domain.Category;
+import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
 import ro.ppc.filegrid.meters.dto.MeterAck;
 import ro.ppc.filegrid.meters.dto.MeterReadingFile;
@@ -46,7 +49,18 @@ public class MeterController {
         var span = tracer.currentSpan();
         String traceId = span == null ? null : span.context().traceId();
 
-        MeterService.Result result = service.ingest(idempotencyKey, body, traceId);
+        long started = System.nanoTime();
+        MeterService.Result result;
+        try {
+            result = service.ingest(idempotencyKey, body, traceId);
+        } catch (RuntimeException e) {
+            // A failed commit is an error op; the device retries with the same key.
+            metrics.recordOp(Category.METER, Storage.DB, FileGridMetrics.Op.WRITE,
+                    FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
+            throw e;
+        }
+        metrics.recordOp(Category.METER, Storage.DB, FileGridMetrics.Op.WRITE,
+                FileGridMetrics.Outcome.OK, Duration.ofNanos(System.nanoTime() - started));
 
         // Counted only once the commit above has returned.
         if (result == MeterService.Result.ACCEPTED) {

@@ -41,9 +41,12 @@ routed by `config/policy.yaml`. Edits confined to `services/filegrid-api/**`, `c
   no host JDK on the build machine, same image as the Dockerfile). Includes the required
   PolicyService tests and the SHA-256-mismatch tests.
 - `mvn -DskipTests package`: assembles `filegrid-api-0.1.0.jar`.
-- Live `make up` + `curl -k` round trips and the Grafana `filegrid_ops_total` check are
-  demo-time steps against zone-B's full stack; see `docs/a.md` for the status note. Run them
-  on a host with the infra up (SeaweedFS buckets, FTPS, observability) before the demo.
+- Live `make up` + curl through `https://localhost`: outage upload/download sha256 equal to
+  the receipt, `verify` ok, meter reading `accepted` then `duplicate`, `filegrid_ops_total`
+  present for outage (s3) and meter (db). Details in `docs/a.md`.
+- **Not proven:** document (FTP) upload. The zone-B FTP image is `amd64` and crashes under
+  Rosetta on Apple Silicon (`/storages/health` shows ftp down). Needs a zone-B fix; re-check
+  on a host where the FTP container is healthy.
 
 ## Contract changes
 

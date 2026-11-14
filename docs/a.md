@@ -65,16 +65,25 @@ None. All work fits `contracts/` v0. No proposed diff to raise.
 
 ### Live verification status
 
-`make a-test` and the full `package` build are green. The live `make up` + `curl -k` round
-trips (upload outage/document/meter, download and `sha256sum`-compare against the receipt,
-send a meter reading twice for accepted→duplicate) and the Grafana/Prometheus check for
-`filegrid_ops_total` are **demo-time steps against the full stack** and were not run on this
-build host: the host is memory-tight with low `/tmp`, and `docker run` for a live stack is
-gated here. The code paths those checks exercise (Flyway schema, DB storage streaming,
-`DigestInputStream` in/out, 422-on-mismatch, `ON CONFLICT DO NOTHING`, metric names) are
-covered by the unit tests. Run the live checks on a machine with the zone-B infra up
-(SeaweedFS buckets `filegrid-outage|document|video`, FTPS, the observability stack) before
-the demo.
+Run on `make up` (macOS arm64) through `https://localhost`, 2026-11-14:
+
+| Check | Result |
+| --- | --- |
+| Outage upload (S3), 2 MiB | 201; receipt sha256 = local `shasum` |
+| Outage download | 200; `X-Content-SHA256` and downloaded bytes hash equal the receipt |
+| `POST /files/{id}/verify` | `ok: true` |
+| Meter reading, same `Idempotency-Key` twice | `201 accepted`, then `200 duplicate` |
+| `filegrid_meter_readings_total` | `accepted=1`, `duplicate=1` |
+| `filegrid_ops_total` / `filegrid_op_duration_seconds` | present for `outage` write/read/verify (s3) and `meter` write (db) |
+| Document upload (FTP) | **Not proven.** `/storages/health` reports `ftp` down. |
+
+**FTP blocker (zone B, not edited here).** `stilliard/pure-ftpd:hardened` is an `amd64` image;
+on Apple Silicon it runs under Rosetta and pure-ftpd fails with `mmap_anonymous_rw mmap failed`.
+Request for zone B: pin `platform: linux/amd64` with a working emulation, or use an image
+with an arm64 build. `FtpStorage` is unit-untested against a real server until this is fixed;
+re-run the document upload/download check on a host where the FTP container is healthy.
+The Grafana Explore view of `filegrid_ops_total` was not opened; the series exists on the
+API's `/actuator/prometheus`.
 
 ### Gating requirement → change that proves it
 
