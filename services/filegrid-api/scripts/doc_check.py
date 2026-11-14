@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Proves, on the running stack, what a document guarantee needs:
 
-  1. the bytes in storage are ciphertext (read straight from Postgres, like a breach would),
+  1. the bytes in storage are ciphertext (read straight from the FTP server's disk and from Postgres, like a breach would),
   2. the file still comes back byte-identical, with the hash of the original,
   3. a flipped bit in storage is refused with 422 and counted,
   4. every access is in the audit log, and the hash chain verifies,
@@ -88,6 +88,24 @@ if status == 201:
     check("stored where the policy says", r["storage"] == "ftp", r["storage"])
     check("receipt says encrypted", r["encrypted"] is True)
     check("receipt hash is of the original bytes", r["sha256"] == expected)
+
+    # What a breach of the FTP server's disk would see: read the file where vsftpd keeps it, not through the API.
+    ftp_id = r["id"]
+    raw = subprocess.run(["docker", "compose", "exec", "-T", "ftp", "cat", f"/home/ftpusers/filegrid/{ftp_id}"],
+                         capture_output=True).stdout
+    check("the file on the FTP server's disk has the ciphertext length",
+          len(raw) == len(plain) + 16 * ((len(plain) + 65535) // 65536), f"{len(raw)} bytes")
+    check("it is not the original bytes", raw != plain and raw[:64] != plain[:64])
+    check("it contains no readable personal data", b"PERSONAL-DATA" not in raw and b"Popescu" not in raw,
+          f"first bytes {raw[:12].hex()}...")
+    listing = subprocess.run(["docker", "compose", "exec", "-T", "ftp", "ls", "/home/ftpusers/filegrid"],
+                             capture_output=True, text=True).stdout
+    check("the file name is not in the FTP server's file names", "contract" not in listing and "Popescu" not in listing)
+    leaks = subprocess.run(["docker", "compose", "exec", "-T", "ftp", "grep", "-rlE", "PERSONAL-DATA|Popescu",
+                            "/home/ftpusers"], capture_output=True, text=True).stdout.split()
+    check("no file anywhere on the FTP server holds the marker", leaks == [], f"{len(leaks)} found")
+    status, _, data = call("GET", f"/api/v1/files/{ftp_id}/content", connections)
+    check("and through the API it comes back identical", status == 200 and data == plain)
 else:
     print(f"  (skipped: policy storage answered {status}; the ftp container is probably not healthy here)")
 

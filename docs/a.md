@@ -712,3 +712,19 @@ Docker is not available, and runs in CI.
 | `files.county` (outage hotspots by county) | **no source.** The upload has no county field (not in `openapi.yaml`) and `files.county` is always null. Options: (a) add an optional `county` form field and tus metadata key to the contract, and Zone C's upload form sends it (a few lines on my side once the contract says so); (b) fill it later from the COMTRADE `.cfg` station (backlog item 18). Until then, group hotspots by `region` or by station once COMTRADE exists. |
 | `files.region` | set for uploads that send it; the web form and the chaos storm do. The 933 older outage rows with a null region come from lab scripts that did not send one. |
 | Timestamps in the simulated data | the simulator sends many readings (growing `seq`) with the **same** interval `ts`, so 10 187 readings from 19 meters hold only 19 distinct `(meter_id, ts)`: `meter_intervals` is keyed by meter and time, so it has one row each. For a useful anomaly view the simulator must advance `ts` by 15 minutes per interval across readings (Zone B). |
+
+## Documents on the FTP server are ciphertext (live proof)
+
+NFR security: a direct breach of a storage does not expose personal data. The Postgres side was proven first; `make a-doc-check` now
+also reads the document **where vsftpd keeps it** (`/home/ftpusers/filegrid/<file id>` in the `ftp` container, not through the API):
+
+| Check | Result |
+| --- | --- |
+| length of the file on the FTP disk | the original plus 16 bytes per 64 KiB segment (300 000 to 300 080) |
+| content | not the original; the personal-data marker and the name in it are not found |
+| file name on the FTP disk | the file id only, not the document name |
+| a search of the whole FTP volume for the marker | no file holds it, including documents of earlier runs |
+| through the API | the same document comes back byte-identical |
+
+The key is not on the FTP server: a per-file key is wrapped by a key derived from `FILEGRID_MASTER_KEY`, and only the wrapped key is
+stored (in Postgres). The master key is in the API's environment only.
