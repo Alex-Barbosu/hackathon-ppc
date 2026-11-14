@@ -2,6 +2,8 @@ name: ci
 
 on:
   pull_request:
+    # labeled/unlabeled: re-run the zone guard when `contracts` or `base` is added.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
