@@ -66,7 +66,7 @@ one warning and continues with future periods. `GET /health` shows `simulatedTim
 
 | Env (in `.env`) | Container env | Default | Meaning |
 | --- | --- | --- | --- |
-| `METER_TARGET_URL` | same | `http://mock-api:4010/api/v1/meter-readings` | Switch to `http://filegrid-api:8080/api/v1/meter-readings` when zone A ships ingest |
+| `METER_TARGET_URL` | same | `http://filegrid-api:8080/api/v1/meter-readings` | Real ingest. `http://mock-api:4010/api/v1/meter-readings` = Prism mock |
 | `METER_READINGS_PER_SEC` | `READINGS_PER_SEC` | 1 | Base global rate (0–5000) |
 | `METER_PROFILE` | same | `normal` | `peak` = 10x the base rate |
 | `METER_COUNT` | same | 500 | Number of meters |
@@ -82,7 +82,8 @@ Advanced (container env only, defaults in `src/config.ts`): `METER_INTERVALS_PER
 - `GET /metrics`: exactly the `meter_sim_*` metrics of `contracts/metrics.md` (+ Node defaults).
 - `GET /rate`, `POST /rate {readingsPerSec?, profile?}` → `{profile, baseReadingsPerSec, readingsPerSec}`.
   `readingsPerSec` sets the base rate; the profile multiplies it (capped at 5000).
-  chaos-control will forward `POST /chaos/meters` here.
+  chaos-control will forward `POST /chaos/meters` here. A live change lasts until the
+  simulator restarts; then the rate and profile from `.env` apply again.
 - Shortcuts: `make b-rate R=20`, `make b-profile P=peak`.
 
 ### Notes for zone A (ingest)
@@ -103,6 +104,54 @@ Advanced (container env only, defaults in `src/config.ts`): `METER_INTERVALS_PER
   (in the simulator logs, "rate changed").
 - No anomalies are injected yet besides the rare flags. Planted anomalies (theft-like drops,
   stuck meters, voltage sags) can be added if the anomaly feature needs ground truth.
+
+### Exactly-once against the real API (14 Nov, branch `zone-b/ftp-and-real-meters`)
+
+From `make reset && make up`, at 20 readings/s: `filegrid-api` stopped for 25 s (513 readings
+queued in the simulator), started again, then the simulator restarted with SIGTERM.
+After draining: 1,365 rows in `meter_readings`, 1,365 distinct keys, and for every one of
+the 500 meters the row count equals its highest seq, which equals the simulator's last
+generated seq. Nothing lost, nothing stored twice.
+
+## FTP server (`infra/ftp`)
+
+Replaces `stilliard/pure-ftpd:hardened`, which zone A reported as crashing on Apple Silicon
+(amd64-only image under emulation). It also failed on amd64: pure-ftpd's TLS mode reset
+every data connection from Java's `FTPSClient` (`Connection reset by peer`, 0-byte
+`.part` files), so no document could be stored. curl reproduced the reset once TLS session
+reuse was turned off (`--no-sessionid`), and Commons Net does not reuse the session.
+
+Now: vsftpd on `debian:bookworm-slim` (multi-arch), built locally.
+- FTPS mandatory for login and data (`force_local_logins_ssl`, `force_local_data_ssl`);
+  a plain-text login gets `530`. Self-signed certificate generated at first start.
+- `require_ssl_reuse=NO` for Java's FTPS client. The data connection must still come from
+  the control connection's IP (`pasv_promiscuous=NO`), and the server is only on `data`.
+- Passive ports 30000–30009 on the `data` network only. Nothing is published.
+- `init: true`: as PID 1, vsftpd's listener exited after download sessions ended (orphaned
+  session processes are re-parented to PID 1), restarting the container after each
+  download. Under tini: 12 consecutive downloads, 0 restarts.
+- A small PAM service (`pam-filegrid`): Debian's default vsftpd profile requires a login
+  shell, which the service account should not have.
+
+Evidence (amd64): documents of 1 KB, 300 KB, 9 MB and 19 MB uploaded through
+`https://localhost/api/v1/files`: stored on `ftp`, download 200, bytes and
+`X-Content-SHA256` match the original, `verify` → `ok: true`.
+Not verified: an arm64 run. This machine has no arm64 emulation; the base image and
+packages are published for arm64, so zone A should re-check on their Mac.
+
+## Requests to other zones
+
+- **Zone A:** `meter_intervals` stays empty; `meter_readings` is filled. Zone C's anomaly
+  baselines need the parsed intervals (contracts/db.md).
+- **Zone A:** `filegrid_storage_up`, `filegrid_circuit_open`, `filegrid_spool_pending` and
+  `filegrid_queue_depth` are not emitted yet. The *Storages* row and the `StorageDown` alert
+  depend on them.
+- **Zone A:** a failed storage write logs nothing and the 503 body carries only the
+  outermost message ("IOException caught while copying"). Logging the cause chain (no file
+  names for documents) would have shown the `Connection reset by peer` directly.
+- **Zone A:** documents are stored with `encrypted: false` although the policy says
+  `encrypt: true`. Expected until the crypto item lands; `DocumentProtectionFailure` will
+  fire on it once wired.
 
 ## Grafana: FileGrid Overview (`infra/grafana/dashboards/overview.json`)
 

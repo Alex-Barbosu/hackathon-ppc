@@ -57,30 +57,24 @@ services:
     restart: unless-stopped
 
   ftp:
-    image: stilliard/pure-ftpd:hardened
+    build: ./ftp
+    # vsftpd must not be PID 1: it aborts when it reaps a process it did not start
+    # (orphans re-parented to PID 1), which restarted the server after every download.
+    init: true
     environment:
-      PUBLICHOST: ftp
       FTP_USER_NAME: filegrid
       FTP_USER_PASS: ${FTP_PASSWORD:?run make up to generate .env}
-      FTP_USER_HOME: /home/ftpusers/filegrid
-      FTP_PASSIVE_PORTS: "30000:30009"
-      FTP_MAX_CLIENTS: "50"
-      FTP_MAX_CONNECTIONS: "50"
-      # --tls=2 refuses plain-text logins: credentials and files travel over FTPS only.
-      ADDED_FLAGS: "--tls=2"
       TLS_CN: ftp
-      TLS_ORG: FileGrid
-      TLS_C: RO
     volumes:
       - ftp-data:/home/ftpusers
     networks: [data]
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/21'"]
+      # A 220 banner means vsftpd is accepting connections.
+      test: ["CMD-SHELL", "echo QUIT | nc -w 2 127.0.0.1 21 | grep -q '^220'"]
       interval: 5s
       timeout: 3s
       retries: 20
     restart: unless-stopped
-
   # ------------------------------------------------------- gateway and chaos
   caddy:
     image: caddy:2.9-alpine
