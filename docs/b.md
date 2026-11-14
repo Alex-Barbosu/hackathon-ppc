@@ -634,7 +634,7 @@ Evidence, 1 MB documents:
 The 503 at 400 ms: a document write makes many FTP round trips (TLS on control and data,
 `.part` write, verify, rename), so 400 ms each adds up past the API's timeout. That opens the
 circuit and the next document goes to the S3 fallback. This proves the resilience claim, but
-for the demo use **`latencyMs` 100-150** on `ftp` to show a slow transfer that still lands.
+for the demo use **`latencyMs` 100** on `ftp` (measured) to show a slow transfer that still lands.
 Zone A: a write that times out returns 503 to the client instead of falling back to S3 on
 the spot; only the next one falls back. Worth a look if the fallback should catch the first.
 
