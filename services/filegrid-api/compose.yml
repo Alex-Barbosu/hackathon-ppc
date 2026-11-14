@@ -15,6 +15,7 @@ services:
       FILEGRID_MASTER_KEY: ${FILEGRID_MASTER_KEY:?run make up to generate .env}
       JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
       DEMO_PASSWORD: ${DEMO_PASSWORD:?run make up to generate .env}
+      METER_DEVICE_TOKEN: ${METER_DEVICE_TOKEN:?run make up to generate .env}
       FILEGRID_POLICY_FILE: /config/policy.yaml
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     volumes:
