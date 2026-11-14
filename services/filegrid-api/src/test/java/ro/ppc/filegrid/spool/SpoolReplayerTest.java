@@ -57,6 +57,8 @@ class SpoolReplayerTest {
     private Target s3;
     private SpoolReplayer replayer;
     private FileRow row;
+    private final io.micrometer.tracing.test.simple.SimpleTracer tracer = new io.micrometer.tracing.test.simple.SimpleTracer();
+    private final ro.ppc.filegrid.observability.Spans spans = new ro.ppc.filegrid.observability.Spans(tracer);
 
     @BeforeEach
     void setUp() throws Exception {
@@ -79,7 +81,7 @@ class SpoolReplayerTest {
         when(fileService.verify(any(), anyString())).thenReturn(new VerifyResult(true, "x", "x", OffsetDateTime.now()));
 
         replayer = new SpoolReplayer(items, storages, guard, files, fileService, new FileGridMetrics(registry),
-                new SpoolGauges(registry));
+                new SpoolGauges(registry), spans);
     }
 
     private FileRow parkedRow() {
@@ -107,6 +109,30 @@ class SpoolReplayerTest {
         verify(fileService).verify(fileId, "spool-replay");
         verify(items).delete(7);
         assertThat(spool.exists("video/" + fileId)).as("the spool copy is removed only after the check").isFalse();
+    }
+
+    @Test
+    void aReplayIsItsOwnTraceWithAWriteSpanToTheTargetStorage() throws Exception {
+        due(item(2));
+
+        replayer.replayDue();
+
+        var write = tracer.getSpans().stream().filter(s -> s.getName().equals("storage.write")).toList();
+        assertThat(write).hasSize(1);
+        assertThat(write.get(0).getTags()).containsEntry("filegrid.storage", "s3").containsEntry("filegrid.category", "video")
+                .containsEntry("filegrid.file_id", fileId.toString()).containsEntry("filegrid.purpose", "spool_replay")
+                .containsEntry("filegrid.attempt", "2");
+        assertThat(write.get(0).getError()).isNull();
+    }
+
+    @Test
+    void aReplayThatFailsIsAFailedSpan() throws Exception {
+        due(item(1));
+        s3.fail = true;
+
+        replayer.replayDue();
+
+        assertThat(tracer.getSpans().stream().filter(s -> s.getName().equals("storage.write")).findFirst().orElseThrow().getError()).isNotNull();
     }
 
     @Test

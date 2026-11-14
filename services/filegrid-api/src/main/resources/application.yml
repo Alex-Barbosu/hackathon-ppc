@@ -43,6 +43,9 @@ server:
 
 filegrid:
   version: 0.1.0
+  otel:
+    # Same collector as the traces (OTEL_EXPORTER_OTLP_ENDPOINT), path /v1/logs.
+    logs-endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318}/v1/logs
   spool:
     # A volume in compose, so parked files survive a container restart.
     dir: ${FILEGRID_SPOOL_DIR:/var/filegrid/spool}
@@ -68,3 +71,9 @@ logging:
   structured:
     format:
       console: ecs   # JSON logs with trace ids, ready for Loki
+    json:
+      rename:
+        # The names in contracts/metrics.md. category, storage and file_id are added to the log context by
+        # ro.ppc.filegrid.observability.Spans while a span is open.
+        traceId: trace_id
+        spanId: span_id

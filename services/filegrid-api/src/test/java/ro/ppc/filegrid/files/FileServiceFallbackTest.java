@@ -68,6 +68,8 @@ class FileServiceFallbackTest {
     private FileService service;
     private FileRow savedRow;
     private PolicyService policy;
+    private final io.micrometer.tracing.test.simple.SimpleTracer tracer = new io.micrometer.tracing.test.simple.SimpleTracer();
+    private final ro.ppc.filegrid.observability.Spans spans = new ro.ppc.filegrid.observability.Spans(tracer);
     private ro.ppc.filegrid.resilience.Bulkheads bulkheads;
 
     @BeforeEach
@@ -115,7 +117,7 @@ class FileServiceFallbackTest {
         bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofMillis(300));
         service = new FileService(policy, storages, repo, new FileGridMetrics(registry),
                 new ReceiptSigner("test-secret-for-receipts"), mock(Tracer.class), new EnvelopeCrypto("ab".repeat(32)),
-                mock(AuditLogService.class), tx, guard, spoolItems, bulkheads);
+                mock(AuditLogService.class), tx, guard, spoolItems, bulkheads, spans);
     }
 
     private static byte[] bytes(int n) {
@@ -313,6 +315,115 @@ class FileServiceFallbackTest {
         assertThat(guard.allows(Storage.S3)).as("twelve broken clients did not open the s3 circuit").isTrue();
         assertThat(ops(Category.OUTAGE, Storage.S3, "error")).isZero();
         assertThat(db.writeAttempts.get()).as("and the fallback was not used for them").isZero();
+    }
+
+    // ------------------------------------------------------------------ spans
+
+    private java.util.List<io.micrometer.tracing.test.simple.SimpleSpan> spansNamed(String name) {
+        return tracer.getSpans().stream().filter(s -> s.getName().equals(name)).toList();
+    }
+
+    @Test
+    void anUploadShowsWhereThePolicySentItAndTheWrite() throws Exception {
+        FileReceipt r = upload(Category.OUTAGE, bytes(5000));
+
+        var route = spansNamed("policy.route");
+        var write = spansNamed("storage.write");
+        assertThat(route).hasSize(1);
+        assertThat(route.get(0).getTags()).containsEntry("filegrid.category", "outage").containsEntry("filegrid.storage", "s3")
+                .containsEntry("filegrid.fallback_storage", "db").containsEntry("filegrid.forced", "false")
+                .containsEntry("filegrid.file_id", r.id());
+        assertThat(write).hasSize(1);
+        assertThat(write.get(0).getTags()).containsEntry("filegrid.category", "outage").containsEntry("filegrid.storage", "s3")
+                .containsEntry("filegrid.file_id", r.id()).containsEntry("filegrid.size_bytes", "5000")
+                .containsEntry("filegrid.fallback", "false");
+        assertThat(write.get(0).getError()).isNull();
+        assertThat(write.get(0).getEndTimestamp()).as("ended").isNotEqualTo(java.time.Instant.EPOCH);
+    }
+
+    @Test
+    void aFallbackShowsAsAFailedWriteThenASuccessfulOneOnTheFallbackStorage() throws Exception {
+        s3.failImmediately = true;
+
+        FileReceipt r = upload(Category.OUTAGE, bytes(5000));
+
+        var write = spansNamed("storage.write");
+        assertThat(write).hasSize(2);
+        assertThat(write.get(0).getTags()).containsEntry("filegrid.storage", "s3").containsEntry("filegrid.fallback", "false");
+        assertThat(write.get(0).getError()).as("the refused write is red in the trace").isNotNull();
+        assertThat(write.get(1).getTags()).containsEntry("filegrid.storage", "db").containsEntry("filegrid.fallback", "true")
+                .containsEntry("filegrid.file_id", r.id());
+        assertThat(write.get(1).getError()).isNull();
+    }
+
+    @Test
+    void aWriteSkippedByAnOpenCircuitIsStillVisibleInTheTrace() throws Exception {
+        s3.failImmediately = true;
+        for (int i = 0; i < 3; i++) {
+            upload(Category.OUTAGE, bytes(100));
+        }
+        tracer.getSpans().clear();
+
+        upload(Category.OUTAGE, bytes(100));
+
+        var write = spansNamed("storage.write");
+        assertThat(write).extracting(sp -> sp.getTags().get("filegrid.storage")).containsExactly("s3", "db");
+        assertThat(write.get(0).getTags()).containsEntry("filegrid.circuit_open", "true");
+        assertThat(write.get(0).getError()).isNotNull();
+    }
+
+    @Test
+    void aDownloadHasAVerifyingPassAroundAReadAndADeliveryReadThatLastsUntilTheStreamIsClosed() throws Exception {
+        FileReceipt r = upload(Category.OUTAGE, bytes(5000));
+        tracer.getSpans().clear();
+
+        var dl = service.openForDownload(UUID.fromString(r.id()), "tester");
+
+        var verify = spansNamed("integrity.verify");
+        assertThat(verify).hasSize(1);
+        assertThat(verify.get(0).getTags()).containsEntry("filegrid.integrity_ok", "true").containsEntry("filegrid.storage", "s3")
+                .containsEntry("filegrid.file_id", r.id());
+        var reads = spansNamed("storage.read");
+        assertThat(reads).hasSize(2);
+        assertThat(reads.get(0).context().parentId()).as("the read inside the check is its child").isEqualTo(verify.get(0).context().spanId());
+        assertThat(reads.get(1).getTags()).containsEntry("filegrid.purpose", "download");
+        assertThat(reads.get(1).getEndTimestamp()).as("still open: the client is still receiving").isEqualTo(java.time.Instant.EPOCH);
+
+        dl.stream().readAllBytes();
+        dl.stream().close();
+
+        assertThat(reads.get(1).getEndTimestamp()).as("ended when the stream closed").isNotEqualTo(java.time.Instant.EPOCH);
+        assertThat(reads.get(1).getTags()).containsEntry("filegrid.bytes_read", "5000");
+    }
+
+    @Test
+    void aFileThatFailsItsCheckHasAFailedVerifySpan() throws Exception {
+        FileReceipt r = upload(Category.OUTAGE, bytes(5000));
+        s3.objects.get(r.id())[100] ^= 1;
+        tracer.getSpans().clear();
+
+        assertThatThrownBy(() -> service.openForDownload(UUID.fromString(r.id()), "tester"))
+                .isInstanceOf(ro.ppc.filegrid.common.IntegrityException.class);
+
+        var verify = spansNamed("integrity.verify").get(0);
+        assertThat(verify.getTags()).containsEntry("filegrid.integrity_ok", "false");
+        assertThat(verify.getError()).as("red in the trace, with the cause").isNotNull();
+        assertThat(spansNamed("storage.read")).as("no delivery read: nothing was sent").hasSize(1);
+    }
+
+    @Test
+    void noSpanOrLogContextEverHoldsTheFileName() throws Exception {
+        var req = new FileService.UploadRequest(Category.OUTAGE, "banat", null, "Ion Popescu - contract.pdf",
+                "application/pdf", 3000, "connections", null);
+        FileReceipt r = service.store(req, () -> new ByteArrayInputStream(bytes(3000)));
+        service.openForDownload(UUID.fromString(r.id()), "alice").stream().close();
+
+        assertThat(tracer.getSpans()).isNotEmpty();
+        for (var span : tracer.getSpans()) {
+            assertThat(span.getName()).doesNotContain("Popescu");
+            assertThat(span.getTags().toString()).doesNotContain("Popescu").doesNotContain("contract");
+            assertThat(String.valueOf(span.getError())).doesNotContain("Popescu");
+        }
     }
 
     // ------------------------------------------------------------------ bulkheads

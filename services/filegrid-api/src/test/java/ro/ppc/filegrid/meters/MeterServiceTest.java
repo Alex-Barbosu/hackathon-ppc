@@ -39,6 +39,8 @@ class MeterServiceTest {
     private StorageGuard guard;
     private MeterSpool spool;
     private MeterService service;
+    private final io.micrometer.tracing.test.simple.SimpleTracer tracer = new io.micrometer.tracing.test.simple.SimpleTracer();
+    private final ro.ppc.filegrid.observability.Spans spans = new ro.ppc.filegrid.observability.Spans(tracer);
     private ro.ppc.filegrid.resilience.Bulkheads bulkheads;
     private ro.ppc.filegrid.policy.PolicyService policy;
 
@@ -57,7 +59,7 @@ class MeterServiceTest {
         when(policy.policyFor(ro.ppc.filegrid.domain.Category.METER)).thenReturn(
                 new ro.ppc.filegrid.policy.CategoryPolicy("db", "spool", false, 1, "high", 16, 5000, false, null));
         bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, new SimpleMeterRegistry(), java.time.Duration.ofSeconds(5));
-        service = new MeterService(repo, MeterSpoolTest.mapper(), guard, tx, spool, bulkheads);
+        service = new MeterService(repo, MeterSpoolTest.mapper(), guard, tx, spool, bulkheads, spans);
     }
 
     private MeterService.Ingested ingest(String key, int seq) {
@@ -79,6 +81,33 @@ class MeterServiceTest {
         assertThat(first).isEqualTo(new MeterService.Ingested(MeterService.Result.ACCEPTED, false));
         assertThat(retry).isEqualTo(new MeterService.Ingested(MeterService.Result.DUPLICATE, false));
         assertThat(spool.count()).isZero();
+    }
+
+    @Test
+    void aReadingStoredInTheDatabaseIsOneStorageWriteSpan() {
+        when(repo.insertIfNew(anyString(), any(), anyString(), any())).thenReturn(true);
+
+        ingest(KEY, 1);
+
+        assertThat(tracer.getSpans()).hasSize(1);
+        var span = tracer.getSpans().peek();
+        assertThat(span.getName()).isEqualTo("storage.write");
+        assertThat(span.getTags()).containsEntry("filegrid.category", "meter").containsEntry("filegrid.storage", "db")
+                .containsEntry("filegrid.duplicate", "false");
+        assertThat(span.getError()).isNull();
+    }
+
+    @Test
+    void aReadingParkedBecauseTheDatabaseIsDownShowsAFailedDatabaseWriteThenASpoolWrite() {
+        databaseDown();
+
+        ingest(KEY, 1);
+
+        var spans = new java.util.ArrayList<>(tracer.getSpans());
+        assertThat(spans).extracting(sp -> sp.getTags().get("filegrid.storage")).containsExactly("db", "spool");
+        assertThat(spans.get(0).getError()).isNotNull();
+        assertThat(spans.get(1).getTags()).containsEntry("filegrid.fallback", "true");
+        assertThat(spans.get(1).getError()).isNull();
     }
 
     @Test
@@ -179,7 +208,7 @@ class MeterServiceTest {
             public <T> T execute(TransactionCallback<T> action) {
                 return action.doInTransaction(null);
             }
-        }, new MeterSpool(blocker.toString(), MeterSpoolTest.mapper()), bulkheads);
+        }, new MeterSpool(blocker.toString(), MeterSpoolTest.mapper()), bulkheads, spans);
 
         assertThatThrownBy(() -> broken.ingest(KEY, MeterSpoolTest.reading("RO-MT-1", 1), null))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.status().value()).isEqualTo(503));
