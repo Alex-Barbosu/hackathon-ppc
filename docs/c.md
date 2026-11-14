@@ -88,3 +88,16 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
 - **Known limit:** the API and the simulator are scraped separately every 5 s, so while the simulator runs at 1 reading/s
   the two counters differ by a few readings at random moments and the card shows "≠". At rest (`POST /chaos/meters` with
   0) they are equal. Options: a tolerance of rate x scrape interval, or pausing readings for the demo's proof moment.
+
+## Meter integrity compares a window (round 4)
+
+- The card compares `increase(...[10m])` of `meter_sim_acked_total` (all acks: each reading ends with exactly one) with
+  `increase(filegrid_meter_readings_total{result="accepted"}[10m])`; duplicates rejected is the API's `duplicate` increase.
+  Values are rounded to whole readings. Lifetime totals are gone: after a restart they disagree for no real reason (measured
+  live: lifetime 1250 acked vs 117 stored, window 600 vs 597).
+- `promql.test.ts` runs the card's own query strings through `promtool` (the Prometheus image) against input series with a
+  counter reset on either side, a real gap, and the old lifetime totals as a contrast. It skips when the image is absent.
+- **Known limit:** Prometheus only sees counter increments at scrape time, so readings the old process accepted after its last
+  scrape before a restart never reach the counter. After restarting the API the card showed 600 vs 597 for the next 10 minutes
+  while the database held exactly 600 distinct readings. A shorter window heals faster; a tolerance or a database-side count
+  would remove it.
