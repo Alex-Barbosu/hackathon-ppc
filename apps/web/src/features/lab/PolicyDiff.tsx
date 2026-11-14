@@ -1,15 +1,22 @@
 import { PrimaryButton, SecondaryButton } from "../../components/ui";
 import { STORAGE_NAME } from "./constants";
+import type { PolicyProblem } from "./policyGuard";
 import type { PolicyPlan } from "./policyMerge";
 
 const LABEL: Record<string, string> = { outage: "Outage records", document: "Documents", video: "Drone video" };
 
-export function PolicyDiff({ plan, saving, onConfirm, onCancel }: {
-  plan: PolicyPlan; saving: boolean; onConfirm: () => void; onCancel: () => void;
+export function PolicyDiff({ plan, problems, saving, onConfirm, onCancel }: {
+  plan: PolicyPlan; problems: readonly PolicyProblem[]; saving: boolean; onConfirm: () => void; onCancel: () => void;
 }) {
+  const blocked = problems.length > 0;
   return (
     <div className="space-y-4 rounded-card border border-line bg-surface p-6" role="region" aria-label="Policy change preview">
-      <h3 className="font-display text-lg">This will change the policy</h3>
+      <h3 className="font-display text-lg">{blocked ? "This change cannot be applied" : "This will change the policy"}</h3>
+      {blocked && (
+        <ul role="alert" className="space-y-2 rounded-xl border border-bad/40 bg-bad/5 p-4 text-sm">
+          {problems.map((p) => <li key={p.message}>{p.message}</li>)}
+        </ul>
+      )}
       <ul className="space-y-3">
         {plan.lines.map((l) => (
           <li key={l.category} className="border-l-2 border-accent/40 pl-3">
@@ -22,11 +29,13 @@ export function PolicyDiff({ plan, saving, onConfirm, onCancel }: {
           </li>
         ))}
       </ul>
-      <p className="text-[13px] text-muted">Only the primary storage changes. Every other setting, and meters, stay as they are. It takes effect without a restart.</p>
-      <div className="flex gap-2">
-        <PrimaryButton disabled={saving} onClick={onConfirm}>{saving ? "Applying" : "Confirm and apply"}</PrimaryButton>
-        <SecondaryButton disabled={saving} onClick={onCancel}>Cancel</SecondaryButton>
-      </div>
+      <p className="text-[13px] text-muted">{blocked ? "Nothing was changed." : "Only the primary storage changes. Every other setting, and meters, stay as they are. It takes effect without a restart."}</p>
+      {!blocked && (
+        <div className="flex gap-2">
+          <PrimaryButton disabled={saving} onClick={onConfirm}>{saving ? "Applying" : "Confirm and apply"}</PrimaryButton>
+          <SecondaryButton disabled={saving} onClick={onCancel}>Cancel</SecondaryButton>
+        </div>
+      )}
     </div>
   );
 }

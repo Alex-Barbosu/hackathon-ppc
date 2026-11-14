@@ -74,3 +74,17 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
   `readMBps`, `errors`, `errorSamples`, `integrityOk`, `status`, `completed`, `sizeBytes`, `method`; extend the recommendation
   with `reasons[]`, `evidence[]` (label/value), `benchmarked`; add `GET /insights/storage-lab/runs/latest`. The web uses
   local types until then.
+
+## Policy guardrails and the meter integrity card
+
+- `validatePolicyChange(current, proposed)` (`apps/web/src/features/lab/policyGuard.ts`) blocks a change when a storage
+  would be the primary of no category (brief gating 2), when any fallback equals its primary, or when meters leave
+  PostgreSQL. Apply stays disabled and the preview lists the problems; nothing is sent.
+- insights applies the same coverage rule when it recommends: if the per-category winners leave a storage unused, the
+  category that loses least takes it, and the reason names both storages, e.g. "S3 was faster for documents (write p95
+  81 ms vs 189 ms on FTPS), but documents stay on FTPS: ... and the brief requires every storage to be in use."
+- Meter integrity: "stored" is only `filegrid_meter_readings_total{result="accepted"}`; with no such series the card says
+  so and never uses the simulator's acks.
+- **Known limit:** the API and the simulator are scraped separately every 5 s, so while the simulator runs at 1 reading/s
+  the two counters differ by a few readings at random moments and the card shows "≠". At rest (`POST /chaos/meters` with
+  0) they are equal. Options: a tolerance of rate x scrape interval, or pausing readings for the demo's proof moment.
