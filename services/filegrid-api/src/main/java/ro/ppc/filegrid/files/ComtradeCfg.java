@@ -38,9 +38,13 @@ import java.util.regex.Pattern;
  * dd/mm/yyyy,hh:mm:ss.ssssss         (first sample)
  * dd/mm/yyyy,hh:mm:ss.ssssss         (trigger: when the fault was detected)
  * ASCII | BINARY | BINARY32 | FLOAT32
+ * timemult                           (1999 and 2013)
+ * time_code,local_code               (2013 only: the recorder's offset from UTC, e.g. +2, -5h30, 0)
+ * tmq_code,leapsec                   (2013 only)
  * </pre>
- * The recorder's clock is read as UTC: a COMTRADE file carries a local time unless a 2013 {@code time_code} says
- * otherwise, and that line is not interpreted here.
+ * Times become UTC with the 2013 {@code time_code} when the file has one ({@code clock} = {@code offset}, or
+ * {@code utc} for an offset of 0). Older files carry no zone at all, so the recorder's clock is read as UTC and
+ * {@code clock} says {@code assumed-utc}, which the UI shows next to the time instead of hiding the guess.
  */
 public final class ComtradeCfg {
 
@@ -53,6 +57,9 @@ public final class ComtradeCfg {
     private static final Pattern CFF_SECTION = Pattern.compile("(?im)^\\s*-{2,}\\s*file type:");
     private static final Pattern CHANNEL_COUNT = Pattern.compile("^\\s*(\\d+)\\s*,\\s*(\\d+)\\s*[aA]\\s*,\\s*(\\d+)\\s*[dD]\\s*$");
     private static final int MAX_TEXT = 128;
+    // time_code per C37.111-2013 §6.4.17: an optional sign, hours, and optionally "h" then minutes ("-5h30").
+    private static final Pattern TIME_CODE = Pattern.compile("^\\s*([+-]?)(\\d{1,2})(?:h(\\d{2}))?\\s*$");
+    private static final int MAX_OFFSET_MINUTES = 14 * 60;
 
     private ComtradeCfg() {
     }
@@ -71,7 +78,7 @@ public final class ComtradeCfg {
      * The keys, all optional except {@code format}: {@code format} (always "comtrade"), {@code station},
      * {@code recorder}, {@code revision}, {@code analogChannels}, {@code digitalChannels}, {@code lineHz},
      * {@code sampleRateHz}, {@code samples}, {@code recordingMs}, {@code startTime}, {@code faultTime},
-     * {@code dataFormat}.
+     * {@code clock} (with either time), {@code timeCode} (as written in the file), {@code dataFormat}.
      */
     public static Optional<String> metadataJson(byte[] head, int length) {
         return parse(head, length).map(m -> {
@@ -199,22 +206,41 @@ public final class ComtradeCfg {
             }
         }
 
+        LocalDateTime start = null;
+        LocalDateTime trigger = null;
         if (next + 1 < rows.size()) {
-            String start = timestamp(rows.get(next));
-            String trigger = timestamp(rows.get(next + 1));
-            if (start != null) {
-                out.put("startTime", start);
-            }
-            if (trigger != null) {
-                out.put("faultTime", trigger);
-            }
+            start = timestamp(rows.get(next));
+            trigger = timestamp(rows.get(next + 1));
             next += 2;
         }
+        boolean formatRead = false;
         if (next < rows.size()) {
             String f = rows.get(next).trim().toUpperCase(Locale.ROOT);
             if (f.equals("ASCII") || f.equals("BINARY") || f.equals("BINARY32") || f.equals("FLOAT32")) {
                 out.put("dataFormat", f);
+                formatRead = true;
+                next++;
             }
+        }
+        // time_code sits two lines after the data format (after timemult). Only looked for when the lines before it
+        // were where they should be, so a stray number elsewhere is never taken for an offset.
+        Integer offsetMinutes = null;
+        if (formatRead && next + 1 < rows.size() && number(rows.get(next)) != null) {
+            String timeCode = rows.get(next + 1).split(",", -1)[0];
+            offsetMinutes = offsetMinutes(timeCode);
+            if (offsetMinutes != null) {
+                out.put("timeCode", timeCode.trim());
+            }
+        }
+        if (start != null || trigger != null) {
+            int shift = offsetMinutes == null ? 0 : offsetMinutes;
+            if (start != null) {
+                out.put("startTime", utc(start, shift));
+            }
+            if (trigger != null) {
+                out.put("faultTime", utc(trigger, shift));
+            }
+            out.put("clock", offsetMinutes == null ? "assumed-utc" : offsetMinutes == 0 ? "utc" : "offset");
         }
         return Optional.of(out);
     }
@@ -246,8 +272,28 @@ public final class ComtradeCfg {
         }
     }
 
-    /** {@code dd/mm/yyyy,hh:mm:ss.ssssss} as an ISO-8601 instant (the recorder's clock read as UTC), or null. */
-    private static String timestamp(String line) {
+    /**
+     * A 2013 {@code time_code} ("+2", "-5h30", "0") in minutes, or null when it is not one. The standard defines it as
+     * the offset of the file's times from UTC, so UTC = recorded time minus the offset.
+     */
+    static Integer offsetMinutes(String timeCode) {
+        Matcher m = TIME_CODE.matcher(timeCode == null ? "" : timeCode);
+        if (!m.matches()) {
+            return null;
+        }
+        int minutes = Integer.parseInt(m.group(2)) * 60 + (m.group(3) == null ? 0 : Integer.parseInt(m.group(3)));
+        if (minutes > MAX_OFFSET_MINUTES || (m.group(3) != null && Integer.parseInt(m.group(3)) >= 60)) {
+            return null;
+        }
+        return "-".equals(m.group(1)) ? -minutes : minutes;
+    }
+
+    private static String utc(LocalDateTime recorded, int offsetMinutes) {
+        return DateTimeFormatter.ISO_INSTANT.format(recorded.minusMinutes(offsetMinutes).toInstant(ZoneOffset.UTC));
+    }
+
+    /** {@code dd/mm/yyyy,hh:mm:ss.ssssss} as the recorder wrote it, with no zone yet, or null. */
+    private static LocalDateTime timestamp(String line) {
         Matcher m = TIMESTAMP.matcher(line);
         if (!m.matches()) {
             return null;
@@ -258,7 +304,7 @@ public final class ComtradeCfg {
             int nanos = frac.isEmpty() ? 0 : Integer.parseInt((frac + "000000000").substring(0, 9));
             LocalTime time = LocalTime.of(Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)),
                     Integer.parseInt(m.group(6)), nanos);
-            return DateTimeFormatter.ISO_INSTANT.format(LocalDateTime.of(date, time).toInstant(ZoneOffset.UTC));
+            return LocalDateTime.of(date, time);
         } catch (RuntimeException e) {
             return null;
         }

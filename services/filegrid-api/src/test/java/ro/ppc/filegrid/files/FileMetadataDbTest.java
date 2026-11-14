@@ -72,6 +72,20 @@ class FileMetadataDbTest {
     }
 
     @Test
+    void theSameRecordingFiledForAnotherCountyIsNotADuplicate() {
+        // A hash no other test in this class uses: the database is shared across its tests.
+        String sha = "7".repeat(64);
+        FileRow r = rowWith(UUID.randomUUID(), "outage", sha, "banat", "stored");
+        repo.insert(new FileRow(r.id(), r.category(), r.storage(), r.objectKey(), r.sizeBytes(), r.sha256(),
+                r.contentType(), r.originalName(), r.description(), r.region(), "Timiș", r.uploadedBy(), r.encrypted(),
+                r.status(), r.traceId(), r.createdAt(), r.lastVerifiedAt()), null, null);
+
+        assertThat(repo.findDuplicate("outage", sha, 100, "banat", "Timiș")).map(FileRow::id).contains(r.id());
+        assertThat(repo.findDuplicate("outage", sha, 100, "banat", "Arad")).isEmpty();
+        assertThat(repo.findDuplicate("outage", sha, 100, "banat", null)).isEmpty();
+    }
+
+    @Test
     void aCorruptFileIsNeverTheOneAnUploadIsMergedWith() {
         String sha = "e".repeat(64);
         repo.insert(rowWith(UUID.randomUUID(), "outage", sha, "banat", "corrupt"), null, null);

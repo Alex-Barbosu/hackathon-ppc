@@ -175,4 +175,71 @@ class ComtradeCfgTest {
         assertThat(ComtradeCfg.looksLikeConfig("report.pdf")).isFalse();
         assertThat(ComtradeCfg.looksLikeConfig(null)).isFalse();
     }
+
+    /** The same recording written by a 2013 recorder whose clock runs on Romanian summer time (UTC+3). */
+    private static String cfg2013(String timeCode) {
+        return String.join("\r\n",
+                "TIMISOARA SUD 110kV,DFR-7,2013",
+                "5,2A,3D",
+                "1,Va,A,,V,0.01,0,0,-32768,32767,110000,110,P",
+                "2,Ia,A,,A,0.01,0,0,-32768,32767,1000,1,P",
+                "1,TRIP,,,0",
+                "2,CB_OPEN,,,0",
+                "3,PROT,,,0",
+                "50",
+                "1",
+                "4000,200",
+                "14/07/2026,13:15:30.000000",
+                "14/07/2026,13:15:30.250000",
+                "ASCII",
+                "1.0",
+                timeCode + ",x",
+                "0,0",
+                "");
+    }
+
+    @Test
+    void aTimeCodeTurnsTheRecordersClockIntoUtc() {
+        assertThat(parse(cfg2013("+3"))).containsEntry("faultTime", "2026-07-14T10:15:30.250Z")
+                .containsEntry("startTime", "2026-07-14T10:15:30Z")
+                .containsEntry("clock", "offset")
+                .containsEntry("timeCode", "+3");
+        assertThat(parse(cfg2013("-5h30"))).containsEntry("faultTime", "2026-07-14T18:45:30.250Z");
+    }
+
+    @Test
+    void aZeroTimeCodeSaysTheClockIsUtc() {
+        assertThat(parse(cfg2013("0"))).containsEntry("faultTime", "2026-07-14T13:15:30.250Z").containsEntry("clock", "utc");
+    }
+
+    @Test
+    void withoutATimeCodeTheGuessIsSaidOutLoud() {
+        assertThat(parse(CFG_1999)).containsEntry("clock", "assumed-utc").doesNotContainKey("timeCode");
+        // A 2013 file whose time_code is not a valid offset is treated as having none, not as UTC+something.
+        assertThat(parse(cfg2013("+99"))).containsEntry("clock", "assumed-utc")
+                .containsEntry("faultTime", "2026-07-14T13:15:30.250Z");
+        assertThat(parse(cfg2013("+2h75"))).containsEntry("clock", "assumed-utc");
+    }
+
+    @Test
+    void timeCodesAreReadAsTheStandardWritesThem() {
+        assertThat(ComtradeCfg.offsetMinutes("+2")).isEqualTo(120);
+        assertThat(ComtradeCfg.offsetMinutes("2")).isEqualTo(120);
+        assertThat(ComtradeCfg.offsetMinutes("-5h30")).isEqualTo(-330);
+        assertThat(ComtradeCfg.offsetMinutes("0")).isZero();
+        assertThat(ComtradeCfg.offsetMinutes("x")).isNull();
+        assertThat(ComtradeCfg.offsetMinutes("")).isNull();
+    }
+
+    /** The sample files dispatch can upload by hand (samples/comtrade) are what the seed script uploads, so read them. */
+    @Test
+    void theSampleRecordingsParse() throws Exception {
+        java.nio.file.Path dir = java.nio.file.Path.of("samples", "comtrade");
+        Map<String, Object> ct = ComtradeCfg.parse(java.nio.file.Files.readAllBytes(dir.resolve("constanta-nord_2013.cfg")), Integer.MAX_VALUE).orElseThrow();
+        assertThat(ct).containsEntry("station", "Statia 110/20kV Constanta Nord").containsEntry("clock", "offset")
+                .containsEntry("startTime", "2026-11-13T18:00:00Z").containsEntry("faultTime", "2026-11-13T18:00:00.150Z")
+                .containsEntry("analogChannels", 6).containsEntry("digitalChannels", 4);
+        Map<String, Object> tl = ComtradeCfg.parse(java.nio.file.Files.readAllBytes(dir.resolve("tulcea-vest_1999.cfg")), Integer.MAX_VALUE).orElseThrow();
+        assertThat(tl).containsEntry("clock", "assumed-utc").containsEntry("faultTime", "2026-11-13T18:00:00.150Z");
+    }
 }

@@ -26,7 +26,17 @@ public record TusUpload(
         String traceId,
         Instant completedAt,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        String county) {
+
+    /** Without a county (the usual video upload). */
+    public TusUpload(UUID id, Category category, String region, String originalName, String contentType,
+                     String uploadedBy, String bucket, String objectKey, String s3UploadId, long length, int partSize,
+                     long offset, long busyMs, String traceId, Instant completedAt, Instant createdAt,
+                     Instant updatedAt) {
+        this(id, category, region, originalName, contentType, uploadedBy, bucket, objectKey, s3UploadId, length,
+                partSize, offset, busyMs, traceId, completedAt, createdAt, updatedAt, null);
+    }
 
     public boolean completed() {
         return completedAt != null;

@@ -6,6 +6,8 @@
   2. The file itself is stored whole: it comes back byte-identical and the receipt hash is of its bytes.
   3. A .dat (the samples), a .cfg that is not a configuration, and a file of another category get no metadata.
   4. A large .cff (5 MiB: the configuration, then data) is read from its start only, and still streams.
+  5. The county sent with the upload is stored (and the region taken from it); a county outside the region is a 400;
+     a 2013 time_code turns the recorder's clock into UTC; GET /files/{id} returns county and recording.
 
 The files are generated in memory; the files it makes are deleted at the end (DELETE /files/{id}, as admin). Run from the repo root with the stack up:
 `make a-comtrade-check`.
@@ -52,11 +54,12 @@ def login(user):
     return {"Authorization": "Bearer " + json.loads(body)["token"]}
 
 
-def upload(auth, category, name, content, region="banat"):
+def upload(auth, category, name, content, region="banat", county=None):
     boundary = "----fg" + os.urandom(6).hex()
     form = (f'--{boundary}\r\nContent-Disposition: form-data; name="category"\r\n\r\n{category}\r\n'
-            f'--{boundary}\r\nContent-Disposition: form-data; name="region"\r\n\r\n{region}\r\n'
-            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\n'
+            + (f'--{boundary}\r\nContent-Disposition: form-data; name="region"\r\n\r\n{region}\r\n' if region else "")
+            + (f'--{boundary}\r\nContent-Disposition: form-data; name="county"\r\n\r\n{county}\r\n' if county else "")
+            + f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\n'
             f'Content-Type: application/octet-stream\r\n\r\n').encode() + content + f"\r\n--{boundary}--\r\n".encode()
     status, body = call("POST", "/api/v1/files", {**auth, "Content-Type": f"multipart/form-data; boundary={boundary}"}, form)
     receipt = json.loads(body)
@@ -112,6 +115,25 @@ try:
     check("stored (201)", status == 201, str(status))
     check("the metadata is read from the configuration part", metadata(big["id"]).get("faultTime") == "2026-11-14T10:15:30.250Z")
     check("hash and size are of the whole file", big["sha256"] == hashlib.sha256(cff).hexdigest() and big["sizeBytes"] == len(cff))
+
+    print("5. County, and the recorder's clock")
+    cfg2013 = CFG.replace(b"PLOIESTI NORD 110kV,DFR-7,1999", b"TIMISOARA SUD 110kV,DFR-7,2013") + b"+2,+2\r\n0,0\r\n"
+    status, tm = upload(dispatch, "outage", "TM-110-fault.cfg", cfg2013, region=None, county="Timiș")
+    check("stored with a county (201)", status == 201, str(status))
+    row = audit_check.psql(f"select region, county from files where id = '{tm['id']}'")
+    check("county stored, region taken from it", row == "banat|Timiș", row)
+    m = metadata(tm["id"])
+    check("time_code +2 applied: 10:15 on the recorder is 08:15 UTC",
+          m.get("faultTime") == "2026-11-14T08:15:30.250Z" and m.get("clock") == "offset", f"{m.get('faultTime')} {m.get('clock')}")
+    check("a file with no time_code says its clock is assumed UTC", metadata(r["id"]).get("clock") == "assumed-utc")
+    status, body = call("GET", f"/api/v1/files/{tm['id']}", dispatch)
+    meta = json.loads(body)
+    check("GET /files/{id} returns county and recording", meta.get("county") == "Timiș"
+          and meta.get("recording", {}).get("station") == "TIMISOARA SUD 110kV", json.dumps(meta.get("recording")))
+    status, wrong = upload(dispatch, "outage", "wrong.cfg", cfg2013, region="muntenia", county="Timiș")
+    check("a county outside the region is refused (400)", status == 400, str(status))
+    status, body = call("GET", "/api/v1/files?category=outage&county=Timi%C8%99&size=100", dispatch)
+    check("search by county finds it", status == 200 and any(i["id"] == tm["id"] for i in json.loads(body)["items"]))
 finally:
     admin = login("admin")
     for fid in made:
