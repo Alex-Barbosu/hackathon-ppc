@@ -139,6 +139,64 @@ Evidence (amd64): documents of 1 KB, 300 KB, 9 MB and 19 MB uploaded through
 Not verified: an arm64 run. This machine has no arm64 emulation; the base image and
 packages are published for arm64, so zone A should re-check on their Mac.
 
+## chaos-control (`services/chaos-control`)
+
+Implements every `/chaos/*` route of `contracts/openapi.yaml`, so the demo can break things
+on cue: NFR resilience (storage down, corruption, lossy links) and scalability (storms).
+
+### Access
+
+- Every `/chaos/*` route, `GET /chaos/state` included, needs `Authorization: Bearer <JWT>`
+  with `role: admin`: 401 without a valid token, 403 for other roles. The token is the HS256
+  JWT that filegrid-api issues at `POST /api/v1/auth/login` (claims `sub`, `role`, `iat`,
+  `exp`, signed with `JWT_SECRET`). Verification copies zone A's `JwtService`: `alg` must be
+  exactly HS256, the signature is always recomputed, and `exp` is required.
+- `make b-token` prints an admin JWT (8 h) signed inside the container, for curl and scripts.
+- `/health` and `/metrics` (port 8090) stay open. Caddy only routes `/chaos/*`.
+
+### Actions
+
+| Route | What it does |
+| --- | --- |
+| `GET /state` | Storages from Docker, network from Toxiproxy (toxics named `fg_*`), meters from the simulator, storm, last 50 actions. Each part is read from its source, so it stays correct after restarts or manual `docker compose` use. |
+| `POST /storages/{db\|s3\|ftp}/{stop\|start}` | Docker stop (10 s grace, so PostgreSQL shuts down cleanly) / start of `postgres`, `seaweedfs` or `ftp`. |
+| `POST /network` | Toxiproxy toxics on `client` (the slow lane, :8443), `db`, `s3` or `ftp`. Latency and jitter are split over both directions, so the round trip grows by `latencyMs`. `bandwidthKbps` applies both ways. TCP proxies cannot drop single packets, so `lossPct` resets that share of connections 1 s in, which an HTTP client sees as a broken transfer it must resume. All zeros clear the target. |
+| `POST /corrupt` | Looks the file up in `files`, then flips the middle byte **in the storage itself**: `stored_blobs` (SQL), the SeaweedFS filer (`/buckets/<bucket>/<key>`, streamed, so 1 GB works with flat memory) or the FTP file on disk. |
+| `POST /storm` | `meter`: simulator rate × multiplier, restored at the end. `outage` / `document`: chaos-control uploads random files at baseline × multiplier (outage 0.5/s × 2 MB, document 0.5/s × 512 KB), open loop, at most 32 in flight, with the caller's token. `video`: 409 until tus exists (zone A P1). |
+| `POST /meters` | Simulator base rate. Ends a running meter storm without restoring the old rate. |
+| `POST /reset` | Ends the storm, removes every toxic, starts all three storages, meters back to `METER_READINGS_PER_SEC` with profile `normal`. |
+
+Metrics: `chaos_actions_total{action,result}`, `chaos_storm_uploads_total{category,result}`
+(not on a dashboard yet, so not listed in `contracts/metrics.md`).
+
+### Docker socket
+
+- Mounted only here, read-write, from `DOCKER_HOST_SOCKET` (default `/var/run/docker.sock`).
+- The code can only address three Compose services (`postgres`, `seaweedfs`, `ftp`), and
+  only in its own project: it reads `com.docker.compose.project` from its own container.
+- Exec runs only fixed commands: one SQL lookup, one SQL update, one shell byte flip.
+  The file id (UUID-validated) and the object key (shape-checked, no `..`) are passed as
+  arguments, never spliced into SQL or shell.
+- The entrypoint joins the socket's group (its gid differs per host), then `su-exec` drops
+  to `node`. The container has `cap_drop: ALL` plus SETUID/SETGID, and `no-new-privileges`.
+- Corruption runs through the socket rather than with storage credentials, because socket
+  access already outranks any database password. No extra secret is needed.
+
+### Evidence (14 Nov, branch `zone-b/chaos-control`)
+
+- Auth: no token → 401, garbage token → 401, dispatch JWT → 403, admin → 200.
+- Corrupt: outage on s3 (byte 150000), document on ftp (byte 200000), and a row inserted
+  with `storage = db` (byte 50000; checked in `stored_blobs`): download before 200, after
+  **422 INTEGRITY_FAILED**, `verify` → `ok: false`. Unknown id → 404, non-UUID → 400.
+- `stop s3`: container exited at once; documents (ftp) still 201; 152 meter readings
+  accepted in 15 s at 10/s; outage uploads 503 (no fallback yet, see requests).
+  `reset` brought SeaweedFS back.
+- Network on the slow lane: 400 ms latency → request 0.015 s → 0.81 s (port 443 still
+  0.004 s); 800 kbit/s → a 500 KB upload took 5.2 s.
+- Storm outage ×10 for 20 s: outage writes rose to 4.7/s (target 5/s), 99 uploads ok,
+  outage p95 0.02 s, **meter p95 flat at 0.01 s**. Ended on time. Meter storm ×10: 1 → 10/s
+  and back to 1/s at the end.
+
 ## Requests to other zones
 
 - **Zone A:** `meter_intervals` stays empty; `meter_readings` is filled. Zone C's anomaly
@@ -149,6 +207,19 @@ packages are published for arm64, so zone A should re-check on their Mac.
 - **Zone A:** a failed storage write logs nothing and the 503 body carries only the
   outermost message ("IOException caught while copying"). Logging the cause chain (no file
   names for documents) would have shown the `Connection reset by peer` directly.
+- **Zone A (resilience):** with S3 stopped, outage uploads return 503. The policy's
+  fallback (`outage → db`) is not applied yet.
+- **Zone A (bug):** a write to `db` storage (fallback, or `X-FileGrid-Force-Storage: db`)
+  fails: `stored_blobs` is inserted before the `files` row, so its foreign key
+  (`stored_blobs_file_id_fkey`) rejects it. This also blocks the outage fallback.
+- **Zone A (network chaos):** filegrid-api connects to `postgres:5432`, `seaweedfs:8333`
+  and `ftp:21` directly, so `/chaos/network` on `db`/`s3`/`ftp` has no effect yet. To
+  route through Toxiproxy, set `PG_URL=jdbc:postgresql://toxiproxy:15432/filegrid` and
+  `S3_ENDPOINT=http://toxiproxy:18333` in `services/filegrid-api/compose.yml`. FTP only
+  partly: passive data connections bypass the proxy, so only the control channel slows.
+  The `client` target (slow lane) works today.
+- **Zone C:** the chaos panel can call `/chaos/*` with the admin session's token. Every
+  action answers 202 with the full `ChaosState`, including `log` for the timeline.
 - **Zone A:** documents are stored with `encrypted: false` although the policy says
   `encrypt: true`. Expected until the crypto item lands; `DocumentProtectionFailure` will
   fire on it once wired.
@@ -182,6 +253,20 @@ syntax only until filegrid-api emits them.
   `start`, all were acked (sent = acked = 3445, 119 retries).
 
 ## Contract change proposals (for the humans to raise)
+
+- **JWT claims.** The contract names the roles but not the token. chaos-control and
+  filegrid-api already agree (see zone A's `JwtService`). Proposed addition to
+  `components.securitySchemes.bearer` in `openapi.yaml`:
+
+  ```diff
+       bearer:
+         type: http
+         scheme: bearer
+         bearerFormat: JWT
+  +      description: |
+  +        HS256, signed with JWT_SECRET. Claims: sub (username), role (Role enum),
+  +        iat, exp (required). Every /chaos route requires role admin.
+  ```
 
 - None needed for this work. Cosmetic only: `MeterReadingFile.county` uses the example
   `Prahova`, which is outside the Rețele Electrice area. `Ilfov` would match `RO-MT-000123`:
