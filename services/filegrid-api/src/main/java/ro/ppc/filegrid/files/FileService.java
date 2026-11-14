@@ -110,8 +110,14 @@ public class FileService {
 
     /** Where a category's bytes go. {@code forceStorage} (admin, Storage Lab) overrides policy. */
     public record UploadRequest(
-            Category category, String region, String description, String originalName,
+            Category category, String region, String county, String description, String originalName,
             String contentType, long sizeBytes, String uploadedBy, Storage forceStorage) {
+
+        /** Without a county: what every caller but an outage upload needs. */
+        public UploadRequest(Category category, String region, String description, String originalName,
+                             String contentType, long sizeBytes, String uploadedBy, Storage forceStorage) {
+            this(category, region, null, description, originalName, contentType, sizeBytes, uploadedBy, forceStorage);
+        }
     }
 
     /**
@@ -369,7 +375,7 @@ public class FileService {
         boolean parked = target == Storage.SPOOL;
         FileRow row = new FileRow(id, req.category().slug(), target.slug(), w.ref().key(),
                 w.plainSize(), w.sha(), req.contentType(), req.originalName(), req.description(),
-                req.region(), null, req.uploadedBy(), encrypt, parked ? "spooled" : "stored", traceId, null, null);
+                req.region(), req.county(), req.uploadedBy(), encrypt, parked ? "spooled" : "stored", traceId, null, null);
         if (metadataJson == null) {
             files.insert(row, envelope == null ? null : envelope.wrappedKey(),
                     envelope == null ? null : envelope.iv());

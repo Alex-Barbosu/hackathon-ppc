@@ -24,6 +24,7 @@ import ro.ppc.filegrid.auth.AuthPrincipal;
 import ro.ppc.filegrid.auth.DownloadTokenService;
 import ro.ppc.filegrid.common.ApiException;
 import ro.ppc.filegrid.domain.Category;
+import ro.ppc.filegrid.domain.County;
 import ro.ppc.filegrid.domain.Region;
 import ro.ppc.filegrid.domain.Role;
 import ro.ppc.filegrid.domain.Storage;
@@ -56,6 +57,7 @@ public class FileController {
     public ResponseEntity<FileReceipt> upload(
             @RequestParam("category") String category,
             @RequestParam(value = "region", required = false) String region,
+            @RequestParam(value = "county", required = false) String county,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam("file") MultipartFile file,
             @RequestHeader(value = "X-FileGrid-Force-Storage", required = false) String forceStorage,
@@ -67,12 +69,12 @@ public class FileController {
             throw ApiException.forbidden("X-FileGrid-Force-Storage is admin only");
         }
         Category cat = parseCategory(category);
-        String reg = parseRegion(region);
+        County.Place place = parsePlace(region, county);
         Storage force = forceStorage == null ? null : parseStorage(forceStorage);
         String contentType = file.getContentType() != null
                 ? file.getContentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE;
 
-        var req = new FileService.UploadRequest(cat, reg, description,
+        var req = new FileService.UploadRequest(cat, place.region(), place.county(), description,
                 file.getOriginalFilename(), contentType, file.getSize(), caller.username(), force);
 
         // The service may need the bytes again if the primary storage fails halfway (the fallback
@@ -87,6 +89,7 @@ public class FileController {
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "q", required = false) String q,
             @RequestParam(value = "region", required = false) String region,
+            @RequestParam(value = "county", required = false) String county,
             @RequestParam(value = "from", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
             @RequestParam(value = "to", required = false)
@@ -96,6 +99,7 @@ public class FileController {
 
         String cat = category == null ? null : parseCategory(category).slug();
         String reg = region == null ? null : parseRegion(region);
+        String cty = county == null ? null : parsePlace(null, county).county();
         if (size < 1 || size > 100) {
             throw ApiException.badRequest("size must be 1..100");
         }
@@ -103,7 +107,7 @@ public class FileController {
             throw ApiException.badRequest("page must be >= 0");
         }
 
-        var result = fileRepository.search(cat, q, reg, from, to, page, size);
+        var result = fileRepository.search(cat, q, reg, cty, from, to, page, size);
         List<FileMeta> items = result.items().stream()
                 .map(r -> FileMapper.toMeta(r, signer)).toList();
         return new SearchPage(items, page, size, result.total());
@@ -188,6 +192,17 @@ public class FileController {
             return storage;
         } catch (IllegalArgumentException e) {
             throw ApiException.badRequest("unknown storage: " + s);
+        }
+    }
+
+    /** Region and county checked together (400 for an unknown county or one outside the region). */
+    private static County.Place parsePlace(String region, String county) {
+        parseRegion(region);
+        try {
+            return County.resolve(region, county);
+        } catch (IllegalArgumentException e) {
+            // The message names only the county and region, both from fixed lists: nothing personal is echoed.
+            throw ApiException.badRequest(e.getMessage().startsWith("county ") ? e.getMessage() : "unknown county");
         }
     }
 

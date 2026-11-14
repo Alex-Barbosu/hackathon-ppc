@@ -38,7 +38,8 @@ public class FileRepository {
             rs.getString("status"),
             rs.getString("trace_id"),
             toOdt(rs.getTimestamp("created_at")),
-            toOdt(rs.getTimestamp("last_verified_at")));
+            toOdt(rs.getTimestamp("last_verified_at")),
+            rs.getString("metadata"));
 
     public void insert(FileRow f) {
         insert(f, null, null);
@@ -101,6 +102,11 @@ public class FileRepository {
      */
     public SearchResult search(String category, String q, String region,
                                OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        return search(category, q, region, null, from, to, page, size);
+    }
+
+    public SearchResult search(String category, String q, String region, String county,
+                               OffsetDateTime from, OffsetDateTime to, int page, int size) {
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> args = new ArrayList<>();
         if (category != null) {
@@ -110,6 +116,10 @@ public class FileRepository {
         if (region != null) {
             where.append(" AND region = ?");
             args.add(region);
+        }
+        if (county != null) {
+            where.append(" AND county = ?");
+            args.add(county);
         }
         if (q != null && !q.isBlank()) {
             where.append(" AND (original_name ILIKE ? OR description ILIKE ?)");

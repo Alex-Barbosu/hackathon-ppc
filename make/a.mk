@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check a-seed-outages
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -45,3 +45,6 @@ a-meter-check: ## Zone A: meter reading -> meter_intervals, retries never duplic
 
 a-comtrade-check: ## Zone A: an outage .cfg is read at upload (station, fault time) into files.metadata; other files get none (removes what it makes)
 	python3 services/filegrid-api/scripts/comtrade_check.py
+
+a-seed-outages: ## Zone A: upload a week of realistic COMTRADE outage records with their county (idempotent; WRITE=dir also saves the .cfg files)
+	python3 services/filegrid-api/scripts/seed_outages.py
