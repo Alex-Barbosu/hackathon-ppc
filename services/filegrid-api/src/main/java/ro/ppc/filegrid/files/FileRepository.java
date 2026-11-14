@@ -76,6 +76,18 @@ public class FileRepository {
         return rows.stream().findFirst();
     }
 
+    /**
+     * The oldest file that is the same content in the same category and region: same SHA-256 and size, readable
+     * ({@code stored} or still {@code spooled}, never {@code corrupt}). Region null matches region null.
+     */
+    public Optional<FileRow> findDuplicate(String category, String sha256, long sizeBytes, String region) {
+        List<FileRow> rows = jdbc.query(
+                "SELECT * FROM files WHERE category = ? AND sha256 = ? AND size_bytes = ? "
+                        + "AND region IS NOT DISTINCT FROM ? AND status IN ('stored', 'spooled') "
+                        + "ORDER BY created_at, id LIMIT 1", MAPPER, category, sha256, sizeBytes, region);
+        return rows.stream().findFirst();
+    }
+
     /** Points a file at where its bytes are now (the spool replay moves them to the real storage). */
     public void relocate(UUID id, String storage, String objectKey, String status) {
         jdbc.update("UPDATE files SET storage = ?, object_key = ?, status = ? WHERE id = ?::uuid",
