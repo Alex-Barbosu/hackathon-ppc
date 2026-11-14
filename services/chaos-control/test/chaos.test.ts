@@ -219,3 +219,19 @@ test("outage storm uploads at baseline x multiplier with the caller's token", as
   assert.ok(seen.length >= 4 && seen.length <= 6, `${seen.length} uploads`);
   assert.ok(seen.every((s) => s.auth === admin && s.category === "outage"));
 });
+
+test("network targets: every proxy chaos-control degrades exists in the Toxiproxy seed", async () => {
+  // A name missing from infra/toxiproxy/toxiproxy.json would make POST /chaos/network fail
+  // with a 404 from Toxiproxy at demo time; for ftp it would leave transfers fast.
+  const { readFile } = await import("node:fs/promises");
+  const { PROXY_FOR, FTP_PASV_PORTS } = await import("../src/toxiproxy.js");
+  const seed = JSON.parse(await readFile(new URL("../../../infra/toxiproxy/toxiproxy.json", import.meta.url), "utf8")) as { name: string; listen: string; upstream: string }[];
+  const byName = new Map(seed.map((p) => [p.name, p]));
+  for (const proxies of Object.values(PROXY_FOR)) for (const name of proxies) assert.ok(byName.has(name), `missing proxy ${name}`);
+  // Passive ports are proxied one to one: vsftpd announces port N, the client dials toxiproxy:N.
+  for (const port of FTP_PASV_PORTS) {
+    const p = byName.get(`ftp_pasv_${port}`);
+    assert.equal(p?.listen, `0.0.0.0:${port}`);
+    assert.equal(p?.upstream, `ftp:${port}`);
+  }
+});
