@@ -1,18 +1,16 @@
-import { StatusBoard } from "./features/status/StatusBoard";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
+import { MotionConfig } from "framer-motion";
+import { router } from "./router";
 
-// Base shell. Zone C replaces this with the router (Upload, Library, Operations,
-// Chaos, Storage Lab, Insights, Policy).
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
+
 export function App() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-20">
-      <p className="text-sm font-medium tracking-wide text-accent uppercase">Rețele Electrice · FileGrid</p>
-      <h1 className="mt-3 font-display text-5xl leading-tight font-semibold">
-        One door for every file the grid sends home.
-      </h1>
-      <p className="mt-5 max-w-xl text-lg text-muted">
-        Base scaffold is running. Each card below is a live health check through the gateway.
-      </p>
-      <StatusBoard />
-    </main>
+    <QueryClientProvider client={queryClient}>
+      <MotionConfig reducedMotion="user">
+        <RouterProvider router={router} />
+      </MotionConfig>
+    </QueryClientProvider>
   );
 }
