@@ -17,6 +17,11 @@
   --color-bad: #b4413a;
 
   --radius-card: 18px;
+
+  /* Glass is reserved for floating layers (chaos dock, toasts, timeline drawer). */
+  --color-glass: rgb(255 253 249 / 0.78);
+  --color-glass-line: rgb(255 255 255 / 0.7);
+  --shadow-float: 0 12px 40px -12px rgb(29 27 24 / 0.25);
 }
 
 @layer base {
@@ -26,4 +31,16 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+}
+
+@utility glass {
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-line);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
 }

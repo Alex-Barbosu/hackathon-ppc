@@ -33,3 +33,20 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
 - `src/knowledge.ts`: `loadCorpus()` + `searchKnowledge(chunks, query, {answers})`, a keyword scorer.
   Wire it as the analyst tool `search_knowledge(query)`; return chunk ids so answers can show source chips.
 - YouTube transcripts: run `corpus/tools/fetch_transcripts.py` locally; output is gitignored (third-party content).
+
+## Operations and chaos dock (round 2)
+
+- Route `/operations` replaces the placeholder; `/chaos` redirects to it. PromQL lives in
+  `apps/web/src/features/operations/prom.ts`, read through Grafana's datasource proxy
+  (`/grafana/api/datasources/proxy/uid/prometheus/api/v1`), refetched every 5 s.
+- Storage strip polls `/api/v1/storages/health` every 3 s. For admins it also reads the chaos state,
+  so a stopped container shows as Down as soon as the action returns (24 ms in the run below).
+- Evidence (14 Nov, real stack): stop S3 -> strip Down 24 ms after the call returned; outage storm x10 ->
+  outage writes rose to ~5/s while meter p95 stayed at 7 ms. Screenshots: `apps/web/screenshots/operations/`.
+
+### Requests to other zones
+- **Zone A:** `/storages/health` blocks ~9 s per call while S3 is down (probe timeout). Use a 1 s probe
+  timeout. `filegrid_queue_depth`, `filegrid_storage_up` and `filegrid_circuit_open` are not emitted yet;
+  the UI falls back to outage write rate for the hero chart.
+- **Zone B:** a local `.env` generated earlier still has `METER_TARGET_URL=http://mock-api:4010/...`, so the
+  simulator never reached the real API. `.env.example` is correct; `make up` does not repair an existing `.env`.
