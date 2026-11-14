@@ -30,7 +30,7 @@ printing the URLs:
 | URL | What |
 | --- | --- |
 | https://localhost | FileGrid web app |
-| https://localhost/grafana | Opens on the **FileGrid Overview** dashboard (anonymous view; admin password in `.env`) |
+| https://localhost/grafana | Opens on the **FileGrid Overview** dashboard (anonymous view; admin password in `.env`). Links at the top lead to the focused **Meters**, **Storages** and **Storm** dashboards |
 | https://localhost/mock/api/v1/health | Mock of the whole API contract (Prism) |
 | https://localhost:8443 | "Slow lane": the same gateway through Toxiproxy, for degraded-network demos |
 
