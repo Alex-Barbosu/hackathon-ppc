@@ -15,6 +15,7 @@ export default defineConfig({
     strictPort: true, // fail loudly instead of silently moving to a port the README does not mention
     proxy: {
       "/api": { target, changeOrigin: true, secure: false },
+      "/grafana": { target, changeOrigin: true, secure: false },
       "/chaos": { target, changeOrigin: true, secure: false },
       "/insights": { target, changeOrigin: true, secure: false },
       "/mock": { target, changeOrigin: true, secure: false },
