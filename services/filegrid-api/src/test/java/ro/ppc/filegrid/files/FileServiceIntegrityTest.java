@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -122,6 +124,62 @@ class FileServiceIntegrityTest {
         assertThat(dl.sha256()).isEqualTo(sha256Hex(original));
     }
 
+    // ------------------------------------------------ large files: one pass
+
+    @Test
+    void aLargeFileIsOpenedWithoutAFirstReadAndStillVerified() throws Exception {
+        storedRowWithHashOf(original);
+        storage.setBytes(original);
+        service.setVerifyFirstMaxBytes(0); // everything counts as large
+
+        var dl = service.openForDownload(id, "tester");
+        assertThat(storage.reads).as("opened once, for sending; no separate hashing read").isEqualTo(1);
+        try (InputStream in = dl.stream()) {
+            assertThat(in.readAllBytes()).isEqualTo(original);
+        }
+        verify(repo).markVerified(id);
+        assertThat(registry.get("filegrid.ops").tags("op", "read", "outcome", "ok").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void aSmallFileIsStillHashedFirst() throws Exception {
+        storedRowWithHashOf(original);
+        storage.setBytes(original);
+
+        service.openForDownload(id, "tester").stream().close();
+
+        assertThat(storage.reads).as("one read to hash, one to send").isEqualTo(2);
+    }
+
+    @Test
+    void aLargeCorruptFileIsCutShortAndCounted() throws Exception {
+        storedRowWithHashOf(original);
+        storage.setBytes(tampered);
+        service.setVerifyFirstMaxBytes(0);
+
+        var dl = service.openForDownload(id, "tester"); // the status line is already decided: no exception here
+        try (InputStream in = dl.stream()) {
+            assertThatThrownBy(in::readAllBytes).isInstanceOf(VerifyingInputStream.StreamIntegrityException.class);
+        }
+
+        verify(repo).markCorrupt(id);
+        verify(repo, never()).markVerified(id);
+        double failures = registry.get("filegrid.integrity.failures")
+                .tags("category", "outage", "storage", "db").counter().count();
+        assertThat(failures).isEqualTo(1.0);
+        assertThat(registry.get("filegrid.ops").tags("op", "read", "outcome", "error").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void aLargeFileThatIsMissingIs404() {
+        storedRowWithHashOf(original);
+        storage.missing = true;
+        service.setVerifyFirstMaxBytes(0);
+
+        assertThatThrownBy(() -> service.openForDownload(id, "tester"))
+                .isInstanceOf(ro.ppc.filegrid.common.ApiException.class);
+    }
+
     private static String sha256Hex(byte[] b) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -134,6 +192,8 @@ class FileServiceIntegrityTest {
     /** In-memory adapter whose bytes the test can swap to simulate corruption. */
     private static final class FakeStorage implements StorageAdapter {
         private byte[] bytes = new byte[0];
+        int reads;
+        boolean missing;
 
         void setBytes(byte[] b) {
             this.bytes = b;
@@ -152,7 +212,8 @@ class FileServiceIntegrityTest {
 
         @Override
         public InputStream read(String key) {
-            return new ByteArrayInputStream(bytes);
+            reads++;
+            return missing ? null : new ByteArrayInputStream(bytes);
         }
 
         @Override

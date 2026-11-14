@@ -79,6 +79,15 @@ public class FileService {
     private final Bulkheads bulkheads;
     private final Spans spans;
 
+    /** Files up to this size are checked first, so a corrupt one gets a clean 422. Larger ones are read once. */
+    static final long DEFAULT_VERIFY_FIRST_MAX_BYTES = 64L * 1024 * 1024;
+    private volatile long verifyFirstMaxBytes = DEFAULT_VERIFY_FIRST_MAX_BYTES;
+
+    @org.springframework.beans.factory.annotation.Value("${filegrid.download.verify-first-max-bytes:67108864}")
+    void setVerifyFirstMaxBytes(long bytes) {
+        this.verifyFirstMaxBytes = bytes;
+    }
+
     public FileService(PolicyService policy, StorageRegistry storages, FileRepository files,
                        FileGridMetrics metrics, ReceiptSigner signer,
                        io.micrometer.tracing.Tracer tracer, EnvelopeCrypto crypto,
@@ -402,6 +411,10 @@ public class FileService {
         Storage storage = Storage.fromSlug(row.storage());
         StorageAdapter adapter = storages.get(storage);
 
+        if (row.sizeBytes() > verifyFirstMaxBytes) {
+            return openSinglePass(row, category, storage, adapter, actor, started);
+        }
+
         String actual = checkIntegrity(adapter, row, category, storage);
         if (actual == null) {
             throw ApiException.notFound("stored object missing for " + id);
@@ -441,6 +454,77 @@ public class FileService {
         metrics.recordOp(category, storage, FileGridMetrics.Op.READ,
                 FileGridMetrics.Outcome.OK, Duration.ofNanos(System.nanoTime() - started));
         metrics.recordBytes(category, storage, "out", row.sizeBytes());
+        return new DownloadStream(stream, row.sha256(), row.sizeBytes(), row.contentType());
+    }
+
+    /**
+     * A large file (over {@code filegrid.download.verify-first-max-bytes}) is read once: the first byte goes out at once and
+     * the hash is built on the way. The last chunk is held back until the hash matches (see {@link VerifyingInputStream}), so a
+     * corrupt file never ends as a complete download, but it is a cut-short response, not a clean 422, because the status line
+     * is already sent. The read is audited before the first byte as {@code result=streaming}; a mismatch adds a
+     * {@code file.read_denied} event when it is found.
+     */
+    private DownloadStream openSinglePass(FileRow row, Category category, Storage storage, StorageAdapter adapter,
+                                          String actor, long started) {
+        UUID id = row.id();
+        audit(row, actor, "file.read", Map.of("result", "streaming"));
+
+        Spans.Scope delivery = spans.start("storage.read", category, storage, id, row.sizeBytes());
+        delivery.tag("filegrid.purpose", "download");
+        Spans.Scope verify = spans.start("integrity.verify", category, storage, id, row.sizeBytes());
+        verify.tag("filegrid.single_pass", true);
+        InputStream opened;
+        try {
+            opened = openPlain(adapter, row);
+        } catch (Exception e) {
+            delivery.error(e);
+            delivery.close();
+            verify.error(e);
+            verify.close();
+            throw ApiException.storageUnavailable("read from " + storage.slug() + " failed");
+        }
+        if (opened == null) {
+            delivery.close();
+            verify.close();
+            throw ApiException.notFound("stored object missing for " + id);
+        }
+
+        VerifyingInputStream.Listener done = new VerifyingInputStream.Listener() {
+            @Override
+            public void verified() {
+                verify.tag("filegrid.integrity_ok", true);
+                verify.close();
+                files.markVerified(id);
+                metrics.recordOp(category, storage, FileGridMetrics.Op.READ,
+                        FileGridMetrics.Outcome.OK, Duration.ofNanos(System.nanoTime() - started));
+                metrics.recordBytes(category, storage, "out", row.sizeBytes());
+            }
+
+            @Override
+            public void failed(String actual) {
+                verify.tag("filegrid.integrity_ok", false);
+                verify.error(new IntegrityException(category, storage, row.sha256(), actual));
+                verify.close();
+                files.markCorrupt(id);
+                metrics.recordOp(category, storage, FileGridMetrics.Op.READ,
+                        FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
+                metrics.recordIntegrityFailure(category, storage);
+                log.warn("integrity failure during a download file_id={} category={} storage={}",
+                        id, category.slug(), storage.slug());
+                try {
+                    audit(row, actor, "file.read_denied", Map.of("result", "integrity_failed"));
+                } catch (RuntimeException e) {
+                    // The download is already cut short; audit() has logged why the event could not be written.
+                }
+            }
+
+            @Override
+            public void closedEarly() {
+                verify.tag("filegrid.aborted", true);
+                verify.close();
+            }
+        };
+        InputStream stream = spans.endOnClose(delivery, new VerifyingInputStream(opened, row.sha256(), done));
         return new DownloadStream(stream, row.sha256(), row.sizeBytes(), row.contentType());
     }
 
