@@ -7,10 +7,15 @@ COPY src ./src
 RUN mvn -q -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S app && adduser -S app -G app
+# su-exec lets the entrypoint fix the owner of the spool volume, then run the JVM as "app".
+RUN apk add --no-cache su-exec && addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=build /src/target/filegrid-api-*.jar app.jar
-USER app
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod 0755 /app/docker-entrypoint.sh
 EXPOSE 8080
+# A named volume mounted over /var/filegrid/spool is owned by root the first time, and stays so
+# for volumes made before this entrypoint existed. The entrypoint chowns it and drops privileges.
 # MaxRAMPercentage keeps the heap bounded so "1 GB uploads with flat memory" is provable.
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=60", "-jar", "/app/app.jar"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["java", "-XX:MaxRAMPercentage=60", "-jar", "/app/app.jar"]

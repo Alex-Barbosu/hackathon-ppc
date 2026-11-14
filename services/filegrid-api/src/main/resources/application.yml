@@ -2,6 +2,11 @@
 spring:
   application:
     name: filegrid-api
+  task:
+    scheduling:
+      # Health probes, spool replay and upload cleanup must not wait on each other.
+      pool:
+        size: 4
   threads:
     virtual:
       enabled: true   # blocking I/O (JDBC, FTP, S3) without thread-pool starvation
@@ -9,6 +14,12 @@ spring:
     url: ${PG_URL:jdbc:postgresql://postgres:5432/filegrid}
     username: ${PG_USER:filegrid}
     password: ${PG_PASSWORD:}
+    hikari:
+      # A stopped database must fail in seconds so the circuit breaker can open and the spool
+      # can take over, instead of every request waiting for the 30 s default.
+      connection-timeout: 3000
+      data-source-properties:
+        connectTimeout: 3
   flyway:
     locations: classpath:db/migration
   web:
@@ -29,6 +40,9 @@ server:
 
 filegrid:
   version: 0.1.0
+  spool:
+    # A volume in compose, so parked files survive a container restart.
+    dir: ${FILEGRID_SPOOL_DIR:/var/filegrid/spool}
   policy-file: ${FILEGRID_POLICY_FILE:/config/policy.yaml}
 
 management:

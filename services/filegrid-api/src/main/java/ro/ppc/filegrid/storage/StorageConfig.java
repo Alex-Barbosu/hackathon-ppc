@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -32,6 +33,9 @@ public class StorageConfig {
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(true)
                         .build())
+                // No hidden retries: the circuit breaker and the fallback decide what to do about a
+                // failure, and an upload body cannot be replayed from inside the SDK anyway.
+                .overrideConfiguration(c -> c.retryStrategy(AwsRetryStrategy.doNotRetry()))
                 .build();
     }
 }

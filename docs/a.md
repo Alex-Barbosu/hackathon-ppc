@@ -264,3 +264,85 @@ database (admin `X-FileGrid-Force-Storage: db`). The encryption is the same for 
 Unit tests: 48 new (131 in all): `EnvelopeCryptoTest` (every size, flipped byte anywhere, cut at a segment boundary,
 extra bytes, swapped segments, wrong file id, wrong or altered key, a 40 MB stream), `AuditChainTest`,
 `FileServiceEncryptionAuditTest` (ciphertext in storage, audit before release, fail closed, rollback, transactions).
+
+## Fallback storage, spool and circuit breaker (branch `zone-a/fallback-spool-breaker`)
+
+Backlog items 13 and 15. Stop a storage and FileGrid keeps taking files, parks what it cannot place, and moves
+it to the right storage once that storage is back.
+
+### The circuit breaker
+
+- One circuit per storage (db, s3, ftp), Resilience4j core, in `StorageGuard`. Every call to a backend goes through it.
+  10 calls window, opens at 50 % failures after at least 3 calls, waits 10 s, then lets 2 trial calls through.
+  Settings: `filegrid.breaker.*`.
+- An open circuit answers at once and does not touch the backend. Reads of a file on that storage get `503`.
+- **What does not count as a storage failure:** the client's connection breaking mid-upload (`ClientStreamException`),
+  our own refusals, and data the database rejects as invalid. Otherwise a closed browser tab, or one bad request, could open
+  a circuit. The request body is wrapped to tell the two apart (`TrackingInputStream`).
+- Health probes (`StorageMonitor`, every 5 s) go through the same circuit. So a circuit opens within about 15 s of a
+  storage dying, and closes by itself after it returns, with no user traffic. They publish `filegrid_storage_up`.
+  `filegrid_circuit_open` is 1 until the circuit is fully closed (half-open counts as 1, or a dead storage would flap).
+- Timeouts so a dead storage fails in seconds: database connect 3 s (`hikari.connection-timeout`), FTP connect 3 s,
+  S3 with no hidden SDK retries. `GET /storages/health` reads the last probe and the live circuit; it never calls a backend.
+
+### Writes
+
+1. The policy's primary. If its circuit is open or the write fails, 2. the policy's `fallback`.
+   The upload body is opened again for the fallback, so it gets the whole file even if the primary failed halfway.
+2. The client is told "stored" only after the bytes are durable where they were written.
+3. `X-FileGrid-Force-Storage` has no fallback (it exists to test one storage). Forcing `spool` is a `400`.
+4. If the **database** is the one that is down, nothing can be recorded, so files get `503`. The database also holds the index.
+5. Metrics: the write that landed on the fallback is `filegrid_ops_total{storage=<fallback>, outcome="fallback"}`;
+   a failed attempt on the primary is `outcome="error"` on the primary. A call refused by an open circuit is not an error.
+
+### The spool
+
+- `SpoolStorage`: a directory on the `spool-data` volume, `<category>/<file id>`. Written to `.part`, forced to disk, then
+  renamed, so a crash leaves a whole file or nothing. A parked file has a `files` row (`storage=spool`, `status=spooled`)
+  and a `spool_items` row, committed together. It can be downloaded while parked, and it keeps its encryption.
+- `SpoolReplayer` (every 5 s) takes due items, copies the bytes to the storage the policy named, points the row at it,
+  then re-reads and hashes the copy the way a download does. Only a copy that verifies lets the spool file go. A bad copy
+  puts the row back on the spool. A storage that is down, or whose circuit is open, is not attempted; the wait between tries
+  grows from 10 s to 5 minutes. Several replicas can run it: the database hands each item to one of them.
+- A file that fell back to **another storage** (outage to the database) stays there. Its row says where it lives.
+  Moving it back is not built.
+- **Meter readings** have their own spool (`MeterSpool`): the policy says meter falls back to spool, but the database is the
+  meter primary, so the index cannot be a table. One small file per reading, named by a hash of the Idempotency-Key.
+  When the database is down a reading is parked, and "accepted" is sent only after the file is on disk. A retry finds it
+  and gets "duplicate". Replay inserts it with the same `ON CONFLICT DO NOTHING`, so no reading is stored twice.
+  Readings the database will never accept go to `meter/rejected/` instead of blocking the rest.
+- `filegrid_spool_pending{category}` is a cached number refreshed every few seconds.
+
+### Container change
+
+The spool volume was owned by `root` and the API runs as `app`, so nothing could ever be written to it. The image now starts
+a small entrypoint as root that fixes the owner of the volume, then `su-exec`s to `app` (Java stays PID 1). This also repairs
+volumes created before this change.
+
+### Proof (`make a-fallback-check`, through Caddy, on the running stack)
+
+This stops and restarts the seaweedfs and postgres containers, and always starts them again.
+
+| Step | Result |
+| --- | --- |
+| ftp is down on this Mac, document upload | falls back to s3, encrypted, downloads identical |
+| Stop S3 | circuit opens within a minute with no traffic; `/storages/health` shows s3 down |
+| Outage file | 201, stored in the database (its fallback); downloads identical |
+| Video | 201, parked in the spool, row `spooled`, file on the volume, downloads identical |
+| Document with ftp and s3 both down | `503`, nothing lost |
+| Gauges | `circuit_open{s3}` 1, `storage_up{s3}` 0, `spool_pending{video}` 1 |
+| Start S3 | video moves to s3 on its own, `spool_pending` 0, spool item and file gone, same SHA-256 |
+| Stop Postgres | 3 meter readings 201 `accepted`, a retry 200 `duplicate`, `spool_pending{meter}` 3, login still works |
+| Start Postgres | spool empties, exactly 3 rows in `meter_readings`, none twice, accepted +3 duplicate +1 |
+
+Unit tests: 73 new (204 in all): the breaker, `StorageMonitor`, `SpoolStorage`, the write path with fallback
+(half-read upload, open circuit skipped, client disconnect, both down, forced storage), `SpoolReplayer`, `MeterSpool`,
+`MeterService`, `MeterSpoolReplayer`.
+
+### Not done
+
+- Resumable (tus) uploads are not spooled: with S3 down they answer `503` and the client retries by itself. Spooling a
+  half-received resumable upload and turning it into a multipart upload later is a different feature.
+- The spool volume is shared by replicas on one host (compose). Replicas on separate hosts would need shared storage.
+- No limit on the spool size; the spool is only checked for free space (64 MB) by its own health check.
+- No alert rule on `spool_pending` for categories other than meter; that is zone B's.
