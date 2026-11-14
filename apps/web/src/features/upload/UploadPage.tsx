@@ -1,9 +1,11 @@
-import { PrimaryButton } from "../../components/ui";
+import { PageHero } from "../../components/PageHero";
+import { Arrow, CARD, PrimaryButton } from "../../components/ui";
 import { CategoryPicker } from "./CategoryPicker";
 import { DropZone } from "./DropZone";
 import { PlaceFields } from "./PlaceFields";
 import { ReceiptCard } from "./ReceiptCard";
 import { TusProgress } from "./TusProgress";
+import { UploadPhone } from "./UploadPhone";
 import { useTusUpload } from "./useTusUpload";
 import { useUpload } from "./useUpload";
 import { useUploadForm } from "./useUploadForm";
@@ -23,21 +25,25 @@ export function UploadPage() {
   };
 
   return (
-    <div className="max-w-3xl">
-      <h1 className="font-display text-4xl font-semibold sm:text-5xl">Upload a record</h1>
-      <p className="mt-3 max-w-xl text-muted">Every file is hashed on arrival, so you can prove later that what you download is what you sent.</p>
-      <div className="mt-10 space-y-6">
-        <CategoryPicker value={category} onChange={(c) => { setCategory(c); multipart.reset(); tus.reset(); }} />
-        <PlaceFields withCounty={category === "outage"} />
-        <DropZone file={file} onFile={setFile} disabled={busy} />
-        <PrimaryButton disabled={!file || busy} onClick={submit}>
-          {multipart.isPending ? "Uploading…" : "Upload record"}
-        </PrimaryButton>
-        {multipart.isError && <p role="alert" className="text-sm text-bad">{multipart.error.message}</p>}
-        {isVideo && tus.state.phase !== "idle" && <TusProgress state={tus.state} onToggle={tus.toggle} />}
-        {isVideo && tus.state.phase === "done" && !receipt && <p className="text-sm text-good">{tus.state.message}</p>}
-        {receipt && <ReceiptCard receipt={receipt} />}
+    <>
+      <PageHero label="Upload" title={<>Upload a <em>record</em>.</>}>
+        Every file is hashed on arrival, so you can prove later that what you download is what you sent.
+      </PageHero>
+      <div className="mt-12 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section aria-label="Upload form" className={`${CARD} space-y-8 p-5 sm:p-10`}>
+          <CategoryPicker value={category} onChange={(c) => { setCategory(c); multipart.reset(); tus.reset(); }} />
+          <PlaceFields withCounty={category === "outage"} />
+          <DropZone file={file} onFile={setFile} disabled={busy} />
+          <PrimaryButton disabled={!file || busy} onClick={submit}>
+            {multipart.isPending ? "Uploading…" : <>Upload record <Arrow /></>}
+          </PrimaryButton>
+          {multipart.isError && <p role="alert" className="text-sm text-bad">{multipart.error.message}</p>}
+          {isVideo && tus.state.phase !== "idle" && <TusProgress state={tus.state} onToggle={tus.toggle} />}
+          {isVideo && tus.state.phase === "done" && !receipt && <p className="text-sm text-good">{tus.state.message}</p>}
+          {receipt && <ReceiptCard receipt={receipt} />}
+        </section>
+        <UploadPhone file={file} receipt={receipt ?? null} pending={busy} percent={isVideo ? tus.state.percent : null} />
       </div>
-    </div>
+    </>
   );
 }

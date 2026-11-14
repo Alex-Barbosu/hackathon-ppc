@@ -21,15 +21,15 @@ function Stat({ label, value, unit, tone }: { label: string; value: string; unit
   const reduce = useReducedMotion();
   return (
     <div>
-      <dt className="text-[13px] text-muted">{label}</dt>
-      <dd className="mt-0.5 flex items-baseline gap-1">
+      <dt className="label text-faint">{label}</dt>
+      <dd className="mt-1.5 flex items-baseline gap-1">
         {/* Key on the value: a short spring settles each change instead of a flash. */}
         <motion.span
           key={value}
           initial={reduce ? false : { opacity: 0.4, y: 3 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 30 }}
-          className={`font-display text-2xl font-semibold tabular-nums ${tone === "bad" ? "text-bad" : ""}`}
+          className={`font-display text-[32px] leading-none tabular-nums ${tone === "bad" ? "text-bad" : ""}`}
         >
           {value}
         </motion.span>
@@ -44,12 +44,12 @@ export function Tiles() {
   const rate = usePromQuery(Q.throughput);
   const err = usePromQuery(Q.errorRate);
   return (
-    <section aria-label="Live metrics per category" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section aria-label="Live metrics per category" className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
       {CATS.map((c) => {
         const e = err.data?.get(c.id);
         return (
           <article key={c.id} className="rounded-card border border-line bg-surface p-6">
-            <h3 className="font-display text-lg">{c.label}</h3>
+            <h3 className="text-xl tracking-[-0.2px]">{c.label}</h3>
             <dl className="mt-4 grid grid-cols-3 gap-3 lg:grid-cols-1 lg:gap-4">
               <Stat label="p95 latency" value={fmtMs(p95.data?.get(c.id))} unit="" />
               <Stat label="Throughput" value={fmtRate(rate.data?.get(c.id))} unit="ops/s" />

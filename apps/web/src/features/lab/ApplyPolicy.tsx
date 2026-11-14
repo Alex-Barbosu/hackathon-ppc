@@ -1,3 +1,4 @@
+import { PrimaryButton } from "../../components/ui";
 import type { LabRecommendation } from "../../lib/domain";
 import { useSession } from "../../state/session";
 import { PolicyDiff } from "./PolicyDiff";
@@ -23,11 +24,10 @@ export function ApplyPolicy({ recs }: { recs: readonly LabRecommendation[] }) {
       <div className="flex flex-wrap items-center gap-3">
         {/* Disabled controls swallow hover, so the reason is visible text, not only a tooltip. */}
         <span title={why ?? undefined}>
-          <button type="button" disabled={why !== null || !policy.data || prepare.isPending || prepare.isSuccess} aria-describedby="apply-why"
-            onClick={() => { apply.reset(); prepare.mutate(); }}
-            className="rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50">
+          <PrimaryButton disabled={why !== null || !policy.data || prepare.isPending || prepare.isSuccess} aria-describedby="apply-why"
+            onClick={() => { apply.reset(); prepare.mutate(); }}>
             Apply policy
-          </button>
+          </PrimaryButton>
         </span>
         <p id="apply-why" className="text-[13px] text-muted">{why}</p>
       </div>
@@ -36,7 +36,7 @@ export function ApplyPolicy({ recs }: { recs: readonly LabRecommendation[] }) {
           onConfirm={() => apply.mutate(shown.plan.next)} />
       )}
       {apply.data && (
-        <p role="status" className="rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent tabular-nums">
+        <p role="status" className="rounded-lg bg-good-soft px-4 py-3 text-sm text-good tabular-nums">
           Applied, no restart. Policy version {apply.data.version} is in force.
         </p>
       )}

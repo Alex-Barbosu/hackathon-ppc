@@ -26,11 +26,14 @@ for the outage map. API types generated from `contracts/openapi.yaml` (`openapi-
 read-only role, Prometheus HTTP API client.
 
 ## Design direction
-Premium and calm (Linear / Vercel level), light warm-neutral background, serif headings
-(Fraunces or Source Serif) + clean sans body (not Inter/Roboto/system-ui), one restrained
-accent (a grid-energy amber or deep teal), 16–20 px radii, generous whitespace, spring
-motion, "thinking" indicators for AI. No purple-blue gradients. Components under 80 lines,
-named exports, domain logic in custom hooks.
+Changed by Alex on 14 Nov 2026: the web app follows Origin (useorigin.com) closely. Dark ground
+#050505, white as the only accent, colour for status only. Headings in Newsreader Light (300)
+with one italic word; body in Inter Light; labels, nav and buttons in Roboto Mono capitals.
+Cards 4% white with 0.8 px 8% borders and 24 px radius; widget panels #121212, 16 px radius.
+Photography is replaced by our own procedural textures (`public/textures`, `tex-*` utilities)
+and a CSS 3D `PhoneFrame` that shows real FileGrid UI. No AI tells: no glows, blobs or sparkles.
+Tokens live in `src/index.css` `@theme`. Components under 80 lines, named exports, domain logic
+in custom hooks, spring motion, AA contrast, visible focus rings.
 
 ## Screens
 1. **Login** (demo roles).

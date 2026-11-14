@@ -6,7 +6,7 @@ import { errorText, rejectedByDesign } from "./errorText";
 
 function Pill({ children, tone }: { children: string; tone: "accent" | "muted" }) {
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone === "accent" ? "bg-accent text-white" : "border border-line text-muted"}`}>
+    <span className={`rounded-md px-2 py-0.5 font-mono text-[11px] font-medium uppercase tracking-label ${tone === "accent" ? "bg-accent text-accent-ink" : "border border-line text-muted"}`}>
       {children}
     </span>
   );
@@ -41,7 +41,7 @@ export function MatrixCell({ cell, recommended, current }: { cell: LabCell; reco
   const running = cell.status === "running";
   return (
     <motion.div layout transition={{ type: "spring", stiffness: 260, damping: 30 }}
-      className={`rounded-xl border p-4 ${recommended ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}>
+      className={`rounded-widget border-[0.8px] p-4 ${recommended ? "border-white bg-accent-soft" : "border-line bg-panel"}`}>
       <div className="mb-3 flex min-h-6 flex-wrap items-center gap-1.5">
         <span className="text-sm font-medium lg:hidden">{STORAGE_NAME[cell.storage]}</span>
         {recommended && <Pill tone="accent">Recommended</Pill>}

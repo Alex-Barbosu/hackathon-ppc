@@ -15,8 +15,8 @@ export function ConfirmButton({ label, confirmLabel, onConfirm, disabled }: {
       type="button"
       disabled={disabled}
       onClick={() => { if (armed) { setArmed(false); onConfirm(); } else setArmed(true); }}
-      className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
-        armed ? "border-bad bg-bad text-white" : "border-bad/60 text-bad hover:bg-bad/5"
+      className={`min-h-10 rounded-lg border-[0.8px] px-3.5 py-2 font-mono text-xs font-medium uppercase tracking-label transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+        armed ? "border-bad bg-bad text-black" : "border-bad/60 text-bad hover:bg-bad-soft"
       }`}
     >
       {armed ? confirmLabel : label}

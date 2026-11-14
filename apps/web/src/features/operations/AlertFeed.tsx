@@ -13,24 +13,24 @@ export function AlertFeed() {
     .slice(0, 5);
   const firing = shown.filter((i) => i.status === "firing").length;
   return (
-    <section aria-label="Alerts" className="rounded-card border border-line bg-surface p-6">
-      <h3 className="font-display text-lg">Alerts</h3>
-      {isError && <p className="mt-3 text-[13px] text-muted">Alerts could not be read. Showing nothing rather than a stale list.</p>}
-      {!isError && firing === 0 && <p className="mt-3 text-sm text-good">No alerts firing. The business guarantees are holding.</p>}
+    <section aria-label="Alerts">
+      <p className="label text-white/75">Alerts · last 15 minutes</p>
+      {isError && <p className="mt-3 text-[13px] text-white/75">Alerts could not be read. Showing nothing rather than a stale list.</p>}
+      {!isError && firing === 0 && <h3 className="mt-3 font-display text-[28px] leading-[1.15] text-white/90 sm:text-4xl">No alerts firing. The guarantees are <em>holding</em>.</h3>}
       <ul className="mt-3 space-y-3">
         {shown.map((i) => {
           const live = i.status === "firing";
           return (
-            <li key={i.id} className={`rounded-xl border p-4 ${live ? (i.severity === "critical" ? "border-bad/50" : "border-warn/50") : "border-line"}`}>
+            <li key={i.id} className={`rounded-widget border-[0.8px] bg-black/30 p-4 ${live ? (i.severity === "critical" ? "border-bad/50" : "border-warn/50") : "border-white/12"}`}>
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span className="font-medium">{i.alert}</span>
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${live ? (i.severity === "critical" ? "bg-bad/10 text-bad" : "bg-warn/10 text-warn") : "bg-good/10 text-good"}`}>
+                <span className="font-normal">{i.alert}</span>
+                <span className={`rounded-md px-2 py-1 text-[13px] ${live ? (i.severity === "critical" ? "bg-bad-soft text-bad" : "bg-warn-soft text-warn") : "bg-good-soft text-good"}`}>
                   {live ? (i.severity === "critical" ? "Critical, firing" : "Warning, firing") : "Resolved"}
                 </span>
-                <span className="text-[13px] text-muted tabular-nums">since {formatDateTime(i.startedAt)}</span>
+                <span className="text-[13px] text-white/70 tabular-nums">since {formatDateTime(i.startedAt)}</span>
               </p>
-              {i.summary && <p className="mt-1 text-[13px] text-muted">{i.summary}</p>}
-              {i.narration && <p className="mt-2 max-w-2xl text-[15px] leading-relaxed">{i.narration}</p>}
+              {i.summary && <p className="mt-1 text-[13px] text-white/70">{i.summary}</p>}
+              {i.narration && <p className="mt-2 max-w-2xl text-base leading-6">{i.narration}</p>}
             </li>
           );
         })}

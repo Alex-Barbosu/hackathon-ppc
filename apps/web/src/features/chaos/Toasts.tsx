@@ -9,7 +9,7 @@ export function Toasts() {
         {items.map((t) => (
           <motion.div key={t.id} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className="glass pointer-events-auto flex items-start justify-between gap-3 rounded-2xl p-4 text-sm">
+            className="glass pointer-events-auto flex items-start justify-between gap-3 rounded-widget p-4 text-sm">
             <span>{t.text}</span>
             <button type="button" onClick={() => dismiss(t.id)} className="text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">Dismiss</button>
           </motion.div>
