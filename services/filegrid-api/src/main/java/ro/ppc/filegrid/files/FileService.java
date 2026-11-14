@@ -27,6 +27,7 @@ import ro.ppc.filegrid.files.dto.VerifyResult;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
 import ro.ppc.filegrid.policy.CategoryPolicy;
 import ro.ppc.filegrid.policy.PolicyService;
+import ro.ppc.filegrid.resilience.Bulkheads;
 import ro.ppc.filegrid.resilience.ClientStreamException;
 import ro.ppc.filegrid.resilience.StorageDownException;
 import ro.ppc.filegrid.resilience.StorageGuard;
@@ -74,12 +75,13 @@ public class FileService {
     private final TransactionTemplate tx;
     private final StorageGuard guard;
     private final SpoolRepository spoolItems;
+    private final Bulkheads bulkheads;
 
     public FileService(PolicyService policy, StorageRegistry storages, FileRepository files,
                        FileGridMetrics metrics, ReceiptSigner signer,
                        io.micrometer.tracing.Tracer tracer, EnvelopeCrypto crypto,
                        AuditLogService audit, TransactionTemplate tx, StorageGuard guard,
-                       SpoolRepository spoolItems) {
+                       SpoolRepository spoolItems, Bulkheads bulkheads) {
         this.policy = policy;
         this.storages = storages;
         this.files = files;
@@ -91,6 +93,7 @@ public class FileService {
         this.tx = tx;
         this.guard = guard;
         this.spoolItems = spoolItems;
+        this.bulkheads = bulkheads;
     }
 
     /** Where a category's bytes go. {@code forceStorage} (admin, Storage Lab) overrides policy. */
@@ -129,6 +132,14 @@ public class FileService {
                     + catPolicy.maxSizeMb());
         }
 
+        // This category's writes are limited (bulkhead): a storm here waits or is refused here, and the other
+        // categories keep their own workers. Over the limit this throws BulkheadFullException (a 503).
+        try (Bulkheads.Permit ignored = bulkheads.enter(req.category())) {
+            return storeWithFallback(req, source, catPolicy);
+        }
+    }
+
+    private FileReceipt storeWithFallback(UploadRequest req, BodySource source, CategoryPolicy catPolicy) {
         List<Storage> plan = plan(req, catPolicy);
         UUID id = UUID.randomUUID();
         List<String> tried = new ArrayList<>();

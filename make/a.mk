@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-policy-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-policy-check
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -24,3 +24,6 @@ a-fallback-check: ## Zone A: STOPS then restarts seaweedfs and postgres (SKIP_DB
 
 a-policy-check: ## Zone A: policy changes with no restart (NO_FILE=1 skips the config/policy.yaml edit, NO_RESTART=1 skips the restart)
 	python3 services/filegrid-api/scripts/policy_check.py
+
+a-bulkhead-check: ## Zone A: outage storm with tight limits (via PUT /policy, restored after); meter and documents keep working
+	python3 services/filegrid-api/scripts/bulkhead_check.py

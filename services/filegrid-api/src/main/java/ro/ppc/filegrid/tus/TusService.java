@@ -24,6 +24,7 @@ import ro.ppc.filegrid.files.FileRow;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
 import ro.ppc.filegrid.policy.CategoryPolicy;
 import ro.ppc.filegrid.policy.PolicyService;
+import ro.ppc.filegrid.resilience.Bulkheads;
 import ro.ppc.filegrid.storage.S3Storage;
 
 /**
@@ -55,14 +56,16 @@ public class TusService {
     private final FileGridMetrics metrics;
     private final Tracer tracer;
     private final DigestCache digests = new DigestCache();
+    private final Bulkheads bulkheads;
 
     public TusService(PolicyService policy, TusStore store, TusObjectStore objects,
-                      FileGridMetrics metrics, Tracer tracer) {
+                      FileGridMetrics metrics, Tracer tracer, Bulkheads bulkheads) {
         this.policy = policy;
         this.store = store;
         this.objects = objects;
         this.metrics = metrics;
         this.tracer = tracer;
+        this.bulkheads = bulkheads;
     }
 
     /** Result of one PATCH: the new offset, and the file id once the upload has finished. */
@@ -152,6 +155,16 @@ public class TusService {
             throw ApiException.tooLarge("body is larger than the declared Upload-Length");
         }
 
+        // One chunk is one unit of work. Waiting here costs nothing, but running holds a part buffer, so the
+        // category's limit also bounds how much memory its uploads can use at once.
+        try (Bulkheads.Permit ignored = bulkheads.enter(up.category())) {
+            return receive(up, started, remaining, body);
+        }
+    }
+
+    /** Receives one chunk. Runs inside the category's bulkhead. */
+    private PatchResult receive(TusUpload up, long started, long remaining, InputStream body) {
+        UUID id = up.id();
         int partSize = up.partSize();
         byte[] buf = new byte[partSize];
         int n = 0;

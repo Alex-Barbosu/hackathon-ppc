@@ -56,7 +56,8 @@ class TusServiceTest {
 
     private TusService newService() {
         Tracer tracer = mock(Tracer.class);
-        return new TusService(policy, store, objects, new FileGridMetrics(registry), tracer);
+        return new TusService(policy, store, objects, new FileGridMetrics(registry), tracer,
+                new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5)));
     }
 
     private static byte[] randomBytes(int n) {
@@ -246,6 +247,45 @@ class TusServiceTest {
         var r = send(tus, id, 0, data, 0, data.length);
         assertThat(r.fileId()).isEqualTo(id);
         assertStoredExactly(id, data);
+    }
+
+    // ------------------------------------------------------------------ bulkheads
+
+    @Test
+    void aChunkIsRefusedWhenTheCategoryHasNoFreeWorkerAndTheUploadIsUntouched() throws Exception {
+        byte[] data = randomBytes(8 * MB);
+        UUID id = createVideo(data.length);
+        when(policy.policyFor(Category.VIDEO)).thenReturn(
+                new CategoryPolicy("s3", "spool", false, 5000, "low", 1, 0, null, 5));
+        var bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5));
+        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads);
+
+        try (var held = bulkheads.enter(Category.VIDEO)) {
+            assertThatThrownBy(() -> send(limited, id, 0, data, 0, 1000))
+                    .isInstanceOf(ro.ppc.filegrid.resilience.BulkheadFullException.class);
+        }
+
+        assertThat(store.find(id).orElseThrow().offset()).as("nothing was consumed").isZero();
+        assertThat(objects.pending).isEmpty();
+        // The client retries the same chunk and now gets through.
+        assertThat(send(limited, id, 0, data, 0, data.length).fileId()).isEqualTo(id);
+    }
+
+    @Test
+    void aChunkThatFailsStillGivesItsWorkerBack() {
+        byte[] data = randomBytes(8 * MB);
+        UUID id = createVideo(data.length);
+        when(policy.policyFor(Category.VIDEO)).thenReturn(
+                new CategoryPolicy("s3", "spool", false, 5000, "low", 1, 0, null, 5));
+        var bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofSeconds(5));
+        TusService limited = new TusService(policy, store, objects, new FileGridMetrics(registry), mock(Tracer.class), bulkheads);
+        objects.failParts = true;
+
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> send(limited, id, 0, data, 0, data.length)).isInstanceOf(ApiException.class);
+        }
+
+        assertThat(bulkheads.running(Category.VIDEO)).isZero();
     }
 
     // ------------------------------------------------------------------ protocol rules

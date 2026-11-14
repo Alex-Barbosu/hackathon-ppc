@@ -39,6 +39,8 @@ class MeterServiceTest {
     private StorageGuard guard;
     private MeterSpool spool;
     private MeterService service;
+    private ro.ppc.filegrid.resilience.Bulkheads bulkheads;
+    private ro.ppc.filegrid.policy.PolicyService policy;
 
     @BeforeEach
     void setUp() {
@@ -51,7 +53,11 @@ class MeterServiceTest {
                 return action.doInTransaction(null);
             }
         };
-        service = new MeterService(repo, MeterSpoolTest.mapper(), guard, tx, spool);
+        policy = mock(ro.ppc.filegrid.policy.PolicyService.class);
+        when(policy.policyFor(ro.ppc.filegrid.domain.Category.METER)).thenReturn(
+                new ro.ppc.filegrid.policy.CategoryPolicy("db", "spool", false, 1, "high", 16, 5000, false, null));
+        bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, new SimpleMeterRegistry(), java.time.Duration.ofSeconds(5));
+        service = new MeterService(repo, MeterSpoolTest.mapper(), guard, tx, spool, bulkheads);
     }
 
     private MeterService.Ingested ingest(String key, int seq) {
@@ -139,6 +145,21 @@ class MeterServiceTest {
     }
 
     @Test
+    void aMeterCategoryAtCapacityIsRefusedWithoutTouchingTheDatabaseOrTheSpool() {
+        when(policy.policyFor(ro.ppc.filegrid.domain.Category.METER)).thenReturn(
+                new ro.ppc.filegrid.policy.CategoryPolicy("db", "spool", false, 1, "high", 1, 0, false, null));
+
+        try (var held = bulkheads.enter(ro.ppc.filegrid.domain.Category.METER)) {
+            assertThatThrownBy(() -> ingest(KEY, 1))
+                    .isInstanceOf(ro.ppc.filegrid.resilience.BulkheadFullException.class);
+        }
+
+        verify(repo, never()).insertIfNew(anyString(), any(), anyString(), any());
+        assertThat(spool.count()).as("a refused reading is not parked: the meter retries it").isZero();
+        assertThat(ingest(KEY, 1).spooled()).as("and it is accepted once there is room").isFalse();
+    }
+
+    @Test
     void dataTheDatabaseRejectsIsNotParkedForever() {
         doThrow(new DataIntegrityViolationException("bad value")).when(repo)
                 .insertIfNew(anyString(), any(), anyString(), any());
@@ -158,7 +179,7 @@ class MeterServiceTest {
             public <T> T execute(TransactionCallback<T> action) {
                 return action.doInTransaction(null);
             }
-        }, new MeterSpool(blocker.toString(), MeterSpoolTest.mapper()));
+        }, new MeterSpool(blocker.toString(), MeterSpoolTest.mapper()), bulkheads);
 
         assertThatThrownBy(() -> broken.ingest(KEY, MeterSpoolTest.reading("RO-MT-1", 1), null))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.status().value()).isEqualTo(503));

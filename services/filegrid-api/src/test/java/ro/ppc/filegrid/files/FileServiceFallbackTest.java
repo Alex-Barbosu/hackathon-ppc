@@ -67,6 +67,8 @@ class FileServiceFallbackTest {
     private SpoolRepository spoolItems;
     private FileService service;
     private FileRow savedRow;
+    private PolicyService policy;
+    private ro.ppc.filegrid.resilience.Bulkheads bulkheads;
 
     @BeforeEach
     void setUp() {
@@ -77,7 +79,7 @@ class FileServiceFallbackTest {
         ftp = new FlakyStorage(Storage.FTP);
         spool = new SpoolStorage(spoolDir.toString());
 
-        PolicyService policy = mock(PolicyService.class);
+        policy = mock(PolicyService.class);
         // The default policy: outage s3 -> db, video s3 -> spool, document ftp -> s3 (encrypted).
         when(policy.policyFor(Category.OUTAGE)).thenReturn(new CategoryPolicy("s3", "db", false, 20, "high", 8, 500, null, null));
         when(policy.policyFor(Category.VIDEO)).thenReturn(new CategoryPolicy("s3", "spool", false, 5000, "low", 2, 20, null, 16));
@@ -110,9 +112,10 @@ class FileServiceFallbackTest {
                 return action.doInTransaction(null);
             }
         };
+        bulkheads = new ro.ppc.filegrid.resilience.Bulkheads(policy, registry, java.time.Duration.ofMillis(300));
         service = new FileService(policy, storages, repo, new FileGridMetrics(registry),
                 new ReceiptSigner("test-secret-for-receipts"), mock(Tracer.class), new EnvelopeCrypto("ab".repeat(32)),
-                mock(AuditLogService.class), tx, guard, spoolItems);
+                mock(AuditLogService.class), tx, guard, spoolItems, bulkheads);
     }
 
     private static byte[] bytes(int n) {
@@ -310,6 +313,53 @@ class FileServiceFallbackTest {
         assertThat(guard.allows(Storage.S3)).as("twelve broken clients did not open the s3 circuit").isTrue();
         assertThat(ops(Category.OUTAGE, Storage.S3, "error")).isZero();
         assertThat(db.writeAttempts.get()).as("and the fallback was not used for them").isZero();
+    }
+
+    // ------------------------------------------------------------------ bulkheads
+
+    private static CategoryPolicy outageLimits(int workers, int queue) {
+        return new CategoryPolicy("s3", "db", false, 20, "high", workers, queue, false, null);
+    }
+
+    @Test
+    void aCategoryAtCapacityIsRefusedBeforeAnyStorageIsTouched() throws Exception {
+        when(policy.policyFor(Category.OUTAGE)).thenReturn(outageLimits(1, 0));
+
+        try (var held = bulkheads.enter(Category.OUTAGE)) {
+            assertThatThrownBy(() -> upload(Category.OUTAGE, bytes(100)))
+                    .isInstanceOf(ro.ppc.filegrid.resilience.BulkheadFullException.class);
+        }
+
+        assertThat(s3.writeAttempts.get()).as("no storage call was made for the refused upload").isZero();
+        assertThat(savedRow).isNull();
+        assertThat(guard.allows(Storage.S3)).as("and a refusal is not a storage failure").isTrue();
+        assertThat(upload(Category.OUTAGE, bytes(100)).storage()).as("the worker is free again").isEqualTo("s3");
+    }
+
+    @Test
+    void aStormInOutageDoesNotStopUploadsInOtherCategories() throws Exception {
+        when(policy.policyFor(Category.OUTAGE)).thenReturn(outageLimits(1, 0));
+
+        try (var held = bulkheads.enter(Category.OUTAGE)) {
+            assertThatThrownBy(() -> upload(Category.OUTAGE, bytes(100)))
+                    .isInstanceOf(ro.ppc.filegrid.resilience.BulkheadFullException.class);
+
+            assertThat(upload(Category.VIDEO, bytes(100)).storage()).isEqualTo("s3");
+            assertThat(upload(Category.DOCUMENT, bytes(100)).storage()).isEqualTo("ftp");
+        }
+    }
+
+    @Test
+    void theWorkerIsGivenBackAfterAFailedUpload() {
+        when(policy.policyFor(Category.OUTAGE)).thenReturn(outageLimits(1, 0));
+        s3.failImmediately = true;
+        db.failImmediately = true;
+
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> upload(Category.OUTAGE, bytes(100))).isInstanceOf(ApiException.class);
+        }
+
+        assertThat(bulkheads.running(Category.OUTAGE)).isZero();
     }
 
     // ------------------------------------------------------------------ recording and reading

@@ -9,6 +9,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import ro.ppc.filegrid.common.ApiException;
 import ro.ppc.filegrid.domain.Storage;
 import ro.ppc.filegrid.meters.dto.MeterReadingFile;
+import ro.ppc.filegrid.resilience.Bulkheads;
+import ro.ppc.filegrid.domain.Category;
 import ro.ppc.filegrid.resilience.StorageDownException;
 import ro.ppc.filegrid.resilience.StorageGuard;
 
@@ -32,14 +34,16 @@ public class MeterService {
     private final StorageGuard guard;
     private final TransactionTemplate tx;
     private final MeterSpool spool;
+    private final Bulkheads bulkheads;
 
     public MeterService(MeterRepository repo, ObjectMapper json, StorageGuard guard, TransactionTemplate tx,
-                        MeterSpool spool) {
+                        MeterSpool spool, Bulkheads bulkheads) {
         this.repo = repo;
         this.json = json;
         this.guard = guard;
         this.tx = tx;
         this.spool = spool;
+        this.bulkheads = bulkheads;
     }
 
     public enum Result { ACCEPTED, DUPLICATE }
@@ -49,6 +53,13 @@ public class MeterService {
     }
 
     public Ingested ingest(String idempotencyKey, MeterReadingFile body, String traceId) {
+        // Meter readings have their own workers: a storm of uploads elsewhere cannot slow them down.
+        try (Bulkheads.Permit ignored = bulkheads.enter(Category.METER)) {
+            return ingestLimited(idempotencyKey, body, traceId);
+        }
+    }
+
+    private Ingested ingestLimited(String idempotencyKey, MeterReadingFile body, String traceId) {
         // A retry of a reading that is still parked: already accepted, do not park or insert it again.
         if (spool.contains(idempotencyKey)) {
             return new Ingested(Result.DUPLICATE, true);

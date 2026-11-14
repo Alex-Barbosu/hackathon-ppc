@@ -18,6 +18,9 @@ spring:
       # A stopped database must fail in seconds so the circuit breaker can open and the spool
       # can take over, instead of every request waiting for the 30 s default.
       connection-timeout: 3000
+      # Must cover the workers of every category that writes to the database at once (16 + 8 + 4 + 2 by default),
+      # plus the background jobs. A smaller pool would let one category's storm starve the others of connections.
+      maximum-pool-size: 32
       data-source-properties:
         connectTimeout: 3
   flyway:
