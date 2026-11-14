@@ -18,6 +18,11 @@ make b-load S=video-lossy VIDEO_MB=1100 LOSS_PCT=0 LATENCY_MS=0 JITTER_MS=0 BAND
 | `storm-outage.js` | Outage uploads at 0.2/s × `MULTIPLIER` (default 10), `OUTAGE_MB` (default 5) each, open arrival model; documents at their normal 0.5/s as the bystander. | Documents: < 1 % failures and p95 < 3 s during the storm; storm < 5 % failures. Meter p95 is watched on Grafana. |
 | `video-lossy.js` | Logs in as `field`, creates a tus upload, then degrades the slow lane through `/chaos/network` (default 150 ms ± 50 ms, 20 % connection loss, 50 Mbit/s), uploads in 8 MB chunks over https://localhost:8443, and after each cut connection asks the server for its offset (`HEAD`) and continues. Heals the link at the end, even on failure. Downloads the video and compares SHA-256. | Upload completed and download byte-identical |
 
+Uploads that get a 502/503 or a broken connection from the gateway are resent up to
+twice, like the web app's uploader does when the replica serving it goes away. They are
+counted as `upload_retries`. The checks count uploads that ended stored, so a retried upload
+still has to arrive intact.
+
 How it runs: the `k6` service shares the gateway's network namespace, so
 `https://localhost` is Caddy itself; `k6-slowlane` shares Toxiproxy's, so
 `https://localhost:8443` is the degradable slow lane. Both have the Compose profile `load`,
@@ -25,7 +30,7 @@ so `make up` never starts them.
 
 Results: the k6 summary in the terminal, and the same numbers in Prometheus via remote
 write (`k6_*` metrics, label `testid=<scenario>-<HHMMSS>`). Grafana → FileGrid Overview →
-*Load tests (k6)* row, with the `k6 run` variable to pick a run.
+*Load tests* row, with the `k6 run` variable to pick a run.
 
 Variables (pass as `make b-load S=… NAME=value`): `DURATION`, `MULTIPLIER`,
 `OUTAGE_PER_SEC`, `OUTAGE_MB`, `DOCUMENT_PER_SEC`, `VIDEO_MB`, `CHUNK_MB`, `LOSS_PCT`,

@@ -1452,7 +1452,7 @@
             "uid": "prometheus"
           },
           "expr": "sum(rate(meter_sim_acked_total[$__rate_interval]))",
-          "legendFormat": "acked (simulator)"
+          "legendFormat": "confirmed (simulator)"
         },
         {
           "refId": "C",
@@ -1461,7 +1461,7 @@
             "uid": "prometheus"
           },
           "expr": "sum(rate(filegrid_meter_readings_total{result=\"accepted\"}[$__rate_interval]))",
-          "legendFormat": "accepted (FileGrid)"
+          "legendFormat": "stored (FileGrid)"
         },
         {
           "refId": "D",
@@ -1470,7 +1470,7 @@
             "uid": "prometheus"
           },
           "expr": "sum(rate(filegrid_meter_readings_total{result=\"duplicate\"}[$__rate_interval]))",
-          "legendFormat": "duplicate (FileGrid)"
+          "legendFormat": "duplicates refused (FileGrid)"
         },
         {
           "refId": "E",
@@ -1551,7 +1551,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "acked (simulator)"
+              "options": "confirmed (simulator)"
             },
             "properties": [
               {
@@ -1566,7 +1566,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "accepted (FileGrid)"
+              "options": "stored (FileGrid)"
             },
             "properties": [
               {
@@ -1581,7 +1581,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "duplicate (FileGrid)"
+              "options": "duplicates refused (FileGrid)"
             },
             "properties": [
               {

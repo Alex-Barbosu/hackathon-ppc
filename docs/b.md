@@ -245,7 +245,7 @@ Evidence (14 Nov, live, chaos-control from #17):
 Toxiproxy's for the slow lane), so https://localhost is Caddy: TLS, routing and login
 exactly as a browser sees them, with no host port or extra certificate. Compose profile
 `load`, so `make up` never starts k6. Results are pushed to Prometheus (`k6_*`, label
-`testid`) and shown in the Overview row *Load tests (k6)*. Scenario details:
+`testid`) and shown in the Overview row *Load tests*. Scenario details:
 `loadtest/README.md`.
 
 Every upload is checked twice: the receipt's SHA-256 must equal the one k6 computed
@@ -282,6 +282,77 @@ The whole `infra/caddy` directory is mounted now.
   memory 690 MiB (max heap 3.4 GiB), so the file never sat in memory.
 - 3 replicas, `docker kill` of one 15 s into a 45 s run at 2 uploads/s: 416/416 checks,
   **0 of 232 requests failed**.
+
+## Demo round (14 Nov evening, branch `zone-b/demo-round`)
+
+### `make up` updates stale defaults (`scripts/init-env.sh`)
+
+`.env` is generated once, so a default that changes later (`METER_TARGET_URL` moved from the
+mock to the real API) stayed stale on every existing machine. Now a key is updated when
+`.env` holds a value that some committed `.env.example` once shipped (from
+`git log -p .env.example`). A value you typed never appears in that history and is kept.
+Secrets are never touched, and without git (a zip download) nothing is changed.
+
+### `make up` waits until files can be stored (`scripts/wait-ready.sh`)
+
+Containers were healthy while filegrid-api still had S3 marked down. It starts as soon as
+PostgreSQL is up, and its first SeaweedFS probe can fail and open that circuit for ~15 s. In
+that window the fresh-clone test stored an outage record in the fallback and got 503 for a
+video. `make up` now also polls `/api/v1/storages/health` until all three storages are up
+and every circuit is closed (12 s on a cold start, 0 s on a warm one).
+
+### In-stack clients through the gateway (Caddy `:8088`)
+
+The meter simulator and chaos storms called `filegrid-api:8080` directly. Node's keep-alive
+pinned them to the replica DNS returned first, so after `make scale N=3` one replica took
+all meter traffic. Caddy now also listens on `:8088`, plain HTTP on the `app` network only,
+never published, `/api/*` only. It uses the same upstream block as the public site, so their
+requests are balanced like a browser's: 300 health requests → 101 / 100 / 99.
+
+Caddy upstream changes, each from a measured failure:
+- **No passive health.** Caddy counted any proxy error as a replica failure, including an
+  upload whose body the API closed early. Under a storm that marked every healthy replica
+  down at once: 161 × "no upstreams available", 503 for every category.
+- **`dial_timeout 1s`.** A killed replica's IP answers nothing until DNS drops it. The
+  default 3 s per attempt held requests for up to the 10 s retry window.
+- **`keepalive 10s`.** This is below Tomcat's 20 s idle timeout. Before, Caddy reused
+  connections Tomcat was closing: 502 "invalid Read on closed Body".
+- **`--watch`.** Caddy reloads when the Caddyfile changes. `make up` does not recreate the
+  container for a config edit.
+
+Remaining edge: when a replica is removed under load, requests in flight on it are cut. The
+gateway does not resend them, because uploads are not idempotent. The client resends, as the
+web app's uploader and k6 do. Measured with `make demo-scale` (3 replicas, outage storm ×10,
+one replica stopped at +30 s): 3 of 157 requests cut, all resent, **305/305 checks passed**
+(every upload stored and byte-identical), meter p95 2.9 ms. A storm with no replica removed:
+0 of 155 failed.
+
+### `make demo`, `make demo-scale`, `make fresh-test`
+
+POSIX sh and curl only (`scripts/lib.sh`), so they run on a Mac as is.
+- `make demo`: six steps with pauses. Each prints the numbers it proves. `DEMO_AUTO=<s>`
+  runs it unattended, and Ctrl-C or an error resets the chaos (tested with S3 stopped).
+  Unattended run: meter p95 3.0 ms at baseline and 2.8 ms during the storm, while outage
+  saves went to 5/s. With S3 stopped, outage went to `db`, a document to `ftp` (encrypted),
+  meters stayed at 10/s, and `StorageDown` fired. Slow lane 3 ms → 807 ms. Corrupted
+  document → 422, `IntegrityFailure` fired. After reset, all storages were back.
+- `make demo-scale`: see above, plus a 64–256 MB video over the lossy lane, byte-identical.
+- `make fresh-test`: clones into a temp dir under its own Compose project (separate
+  containers, networks, volumes, images). `--stop-running` pauses a stack holding port
+  443 and brings it back with `up` from its own folder. Plain `start` left Caddy without
+  its `app` network and every `/api` call failed. Last run: **43 passed, 0 failed**,
+  `make up` 38 s.
+
+### Grafana
+
+- Storm row under the health stats: meter vs outage vs document save time (p95), work
+  waiting per category, arrivals per category. `filegrid_queue_depth` is not emitted yet
+  (zone A: bulkheads not built), so the panel also shows requests in progress across
+  instances. The per-category lines appear by themselves once the metric exists.
+- Titles answer a decision maker's question ("Is FileGrid up?", "Storm: does a spike in
+  one category slow the others?"). Descriptions keep the metric names.
+- The source is in the repo now: `infra/grafana/src/overview.mjs`, rebuilt with
+  `make b-dashboards`.
 
 ## Requests to other zones
 

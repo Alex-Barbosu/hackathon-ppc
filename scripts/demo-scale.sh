@@ -36,7 +36,7 @@ k6_summary() {
 step "0  Preflight"
 [ "$(code GET /api/v1/health)" = 200 ] || { bad "FileGrid is not answering on ${BASE}: run make up"; exit 1; }
 ok "running with ${START_REPLICAS} filegrid-api replica(s)"
-say "  Open: ${B}${BASE}/grafana${N} → FileGrid Overview: *Operations per API replica* and *Load tests (k6)*"
+say "  Open: ${B}${BASE}/grafana${N} → FileGrid Overview: *Work per FileGrid instance (scale-out)* and *Load tests*"
 pause "Enter: 1 scale out to ${REPLICAS} replicas"
 
 step "1  Scale out: ${REPLICAS} replicas of the API, no code change"

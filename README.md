@@ -38,8 +38,9 @@ The browser warns about the certificate once, because TLS comes from Caddy's loc
 Run `make trust` and follow the printed command for your OS to trust it.
 
 **Check it works:** `make ps` shows every service `Up` (most say `healthy`). Open
-https://localhost/grafana: in the **Meters** row, "sent" and "acked" climb at one reading
-per second. Try `make b-profile P=peak` and watch the rate jump tenfold within about 10 s.
+https://localhost/grafana: in the **Smart meters** row, "sent" and "stored" climb at one
+reading per second. Try `make b-profile P=peak` and watch the rate jump tenfold within
+about 10 s. `make up` only returns once FileGrid itself reaches PostgreSQL, S3 and FTP.
 
 | Command | Does |
 | --- | --- |
@@ -49,6 +50,16 @@ per second. Try `make b-profile P=peak` and watch the rate jump tenfold within a
 | `make down` | Stop, keep data |
 | `make reset` | Stop and delete all data (the next `make up` starts clean) |
 | `make help` | Every target |
+
+### Demo and rehearsal
+
+| Command | What it shows |
+| --- | --- |
+| `make demo` | The storm story, step by step with a pause before each: baseline → outage storm ×10 (meter p95 stays flat) → stop S3 (outage falls back to the database, `StorageDown` fires) → bad link on the slow lane → corrupt a file (download refused with 422, `IntegrityFailure` fires) → reset. Ctrl-C at any point undoes the chaos. |
+| `make demo-scale` | 3 API replicas, a k6 outage storm with one replica taken out halfway (every upload still stored), a 256 MB drone video over a lossy link (resumed, byte-identical), back to 1 replica. |
+| `make fresh-test` | The judges' path: clones the repo into a temp dir, runs `make up` from nothing, checks every route, login, one file per category byte-identical, closed ports, alerts quiet; then removes it. Run it before the deadline. `ARGS="--stop-running"` if a stack is already on port 443 (it is restarted afterwards). |
+
+`DEMO_AUTO=5 make demo` runs a demo unattended with 5 s pauses.
 
 ### Chaos buttons (demo)
 
@@ -72,7 +83,7 @@ fast, so you can compare the two.
 ### Load tests
 
 `make b-load S=baseline`, `S=storm-outage` or `S=video-lossy` runs a k6 scenario through
-the gateway; results land in Grafana (Overview → *Load tests (k6)*). Details:
+the gateway; results land in Grafana (Overview → *Load tests*). Details:
 [loadtest/README.md](loadtest/README.md).
 
 If `make up` fails: `make logs s=<service>` shows why; a port already in use (another web
@@ -88,31 +99,31 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | # | Requirement | Proof | Status |
 | --- | --- | --- | --- |
 | 1 | Store and retrieve all four categories | Upload and download one file per category in the web app | pending (A, C) |
-| 2 | FTP, S3 and a database, each a separate service | `docker compose ps postgres seaweedfs ftp` shows three containers. With the default policy, a meter reading goes to `db`, an outage file to `s3`, a document to `ftp` (receipt field `storage`); Overview → *Category × storage matrix* shows each | ✅ (video pending, A) |
+| 2 | FTP, S3 and a database, each a separate service | `docker compose ps postgres seaweedfs ftp` shows three containers. With the default policy, a meter reading goes to `db`, an outage file to `s3`, a document to `ftp` (receipt field `storage`); Overview → *Every category on every storage* shows each | ✅ (video pending, A) |
 | 3 | Policy configurable without code changes | Edit `config/policy.yaml` or `PUT /api/v1/policy`; next upload lands in the new storage | pending (A) |
 | 4 | Retrieved file byte-identical, provably | `sha256sum` of the download equals the receipt's `sha256` and header `X-Content-SHA256`; `POST /api/v1/files/{id}/verify` returns `ok: true` | ✅ outage, document (video pending, A) |
-| 5 | One command on a clean machine | `make reset && make up` ends with every service healthy (`make ps`) | ✅ |
+| 5 | One command on a clean machine | `make fresh-test`: fresh clone → `make up` → 43 checks (routes, login, every category byte-identical, closed ports, alerts quiet), about 40 s with images cached | ✅ |
 | 6 | UI to upload, search, download | https://localhost | pending (C) |
-| 7 | Meters send continuously, configurable volume | Overview → *Meters*: "sent" follows the dashed "configured rate"; `make b-rate R=20` or `make b-profile P=peak` (10x) shows within 10 s | ✅ |
+| 7 | Meters send continuously, configurable volume | Overview → *Smart meters*: "sent" follows the dashed "configured rate"; `make b-rate R=20` or `make b-profile P=peak` (10x) shows within 10 s | ✅ |
 | 8 | Everything in Git | `git status` clean after `make up` (`.env` is generated and ignored) | ✅ |
 
 ### Non-functional requirements
 
 | Area | Requirement | Proof | Status |
 | --- | --- | --- | --- |
-| Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *Latency* and *Throughput and errors* rows (matrix table + time series) | dashboard ✅, data pending (A) |
+| Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *How long saves and downloads take* and *How much work, and how much of it fails* rows (matrix table + time series) | dashboard ✅, data pending (A) |
 | Observability | One operation traceable request → storage | Simulator sends a W3C `traceparent` (one trace per reading, kept across retries); Tempo view in Grafana | partial, pending (A) |
 | Observability | Alert when a business guarantee is at risk | `POST /chaos/storages/db/stop`: `MeterReadingLossRisk` reaches the narrator in about 80 s, then `StorageDown{storage="db"}`; both resolve after `start`. `POST /chaos/corrupt` + download: `IntegrityFailure` in about 10 s. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ (narration pending, C) |
-| Scalability | 10x spike in one category does not degrade others | `make b-load S=storm-outage` (outage ×10, 5 MB each, while documents keep their normal rate; k6 fails the run if documents slow down) or `POST /chaos/storm`; Overview → *Meter write p95* stays flat | ✅ (queue-depth panel pending, A) |
-| Scalability | Scale by adding instances | `make scale N=3`, then any load: Overview → *Operations per API replica* shows an even split (300 requests → 101/100/100). `docker kill` one replica under load: 0 failed requests | ✅ |
+| Scalability | 10x spike in one category does not degrade others | `make b-load S=storm-outage` (outage ×10, 5 MB each, while documents keep their normal rate; k6 fails the run if documents slow down) or `POST /chaos/storm`; Overview → *Meter save time (p95)* and the *Storm* row stays flat | ✅ (queue-depth panel pending, A) |
+| Scalability | Scale by adding instances | `make demo-scale`: 3 replicas share the load (Overview → *Work per FileGrid instance (scale-out)*); one taken out halfway through a storm, every upload still stored | ✅ |
 | Scalability | Files > 1 GB with flat memory | `make b-load S=video-lossy VIDEO_MB=1100 LOSS_PCT=0 LATENCY_MS=0 JITTER_MS=0 BANDWIDTH_KBPS=0`: 1.1 GB uploaded and downloaded byte-identical; API memory stays far below the file size (`docker stats`) | ✅ |
 | Security | Storages unreachable from outside | `for p in 5432 8333 9333 21; do nc -z -w 2 localhost $p && echo "$p OPEN"; done` prints nothing; only Caddy (80/443) and Toxiproxy (8443) publish ports | ✅ |
 | Security | Authenticated access (chaos) | `curl -sk -o /dev/null -w "%{http_code}" https://localhost/chaos/state` → `401`; with `make b-token` → `200`; a non-admin JWT → `403` | ✅ |
 | Security | TLS from outside | `curl -sI http://localhost` → `301` to https; `curl -vk https://localhost` shows TLS 1.3 | ✅ |
 | Security | No secrets in the repo | CI runs gitleaks; `.env` is generated by `make up` from `.env.example` placeholders | ✅ |
 | Security | Docker socket exposure | Only chaos-control mounts the socket (`grep -rn docker.sock infra/compose.yml services/*/compose.yml apps/web/compose.yml`). It touches only the `postgres`, `seaweedfs` and `ftp` containers of its own Compose project, runs as `node` with every capability dropped except SETUID/SETGID, and needs an admin JWT | ✅ |
-| Resilience | Retries never duplicate meter readings | The simulator resends with the same `Idempotency-Key` and identical body (`make b-test`). After an outage, `docker compose exec postgres psql -U filegrid -d filegrid -c "select count(*), count(distinct (meter_id, period_start, seq)) from meter_readings"` shows equal numbers; Overview → *Meters*: "Accepted by FileGrid" tracks "Sent" | ✅ |
-| Resilience | Meter readings are never lost | `docker compose stop filegrid-api`: *Unacked now* grows; after `docker compose start filegrid-api` it drains to 0 and every generated reading is in `meter_readings`, also across a simulator restart | ✅ |
+| Resilience | Retries never duplicate meter readings | The simulator resends with the same `Idempotency-Key` and identical body (`make b-test`). After an outage, `docker compose exec postgres psql -U filegrid -d filegrid -c "select count(*), count(distinct (meter_id, period_start, seq)) from meter_readings"` shows equal numbers; Overview → *Smart meters*: "Readings stored" tracks "Sent" | ✅ |
+| Resilience | Meter readings are never lost | `docker compose stop filegrid-api`: *Readings waiting for confirmation* grows; after `docker compose start filegrid-api` it drains to 0 and every generated reading is in `meter_readings`, also across a simulator restart | ✅ |
 | Resilience | One storage down does not stop others | `POST /chaos/storages/s3/stop`: documents (ftp) and meter readings (db) still succeed; outage should fall back to `db` | chaos ✅, outage fallback pending (A) |
 | Resilience | Transfers on lossy links finish or resume without manual action | `make b-load S=video-lossy`: 256 MB over 150 ms ± 50 ms and 20 % connection loss; every cut chunk resumes from the server offset, download byte-identical | ✅ |
 | Resilience | Corruption detected on retrieval | `POST /chaos/corrupt {"fileId": …}` flips one byte directly in S3, FTP or PostgreSQL; the next download returns `422 INTEGRITY_FAILED` and `verify` returns `ok: false` | ✅ |
