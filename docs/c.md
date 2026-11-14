@@ -24,3 +24,12 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
   For streamed files the UI shows the expected SHA-256; a mid-stream failure appears as a failed browser download.
 - Status on `main` (193e3c8): zone A has no `/auth/login` or `/files/{id}/download-link` yet (the API answers 500),
   so Login and streamed download were verified against the mock only. Upload and search work against the real API.
+
+## Insights: knowledge corpus (for the analyst's `search_knowledge` tool)
+
+- `services/insights/corpus/`: 16 expert-sourced chunks for brief section 5 (reliability indices and
+  Romanian SAIDI yardsticks, Major Event Days, smart meter anomalies, load shape, SRE alerting,
+  latency measurement, storage fit). Sources and licence notes in `corpus/SOURCES.md`.
+- `src/knowledge.ts`: `loadCorpus()` + `searchKnowledge(chunks, query, {answers})`, a keyword scorer.
+  Wire it as the analyst tool `search_knowledge(query)`; return chunk ids so answers can show source chips.
+- YouTube transcripts: run `corpus/tools/fetch_transcripts.py` locally; output is gitignored (third-party content).

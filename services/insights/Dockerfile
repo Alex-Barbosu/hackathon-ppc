@@ -14,6 +14,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 COPY migrations ./migrations
+# The analyst's knowledge corpus is read at runtime from /app/corpus (src/knowledge.ts).
+COPY corpus ./corpus
 USER node
 EXPOSE 8070
 CMD ["node", "dist/index.js"]

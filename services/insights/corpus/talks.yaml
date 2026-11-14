@@ -1,0 +1,25 @@
+# Expert talks to transcribe locally (YouTube is unreachable from the build sandbox).
+# tools/fetch_transcripts.py reads this file and writes .transcripts/<id>-NN.md (gitignored).
+# Add a talk only after checking the speaker is a credible practitioner or researcher.
+talks:
+  - id: talk-tene-2015
+    title: How NOT to Measure Latency
+    speaker: Gil Tene (Azul Systems)
+    channel: Strange Loop Conference
+    url: https://www.youtube.com/watch?v=lJ8ydIuPFeU
+    topics: [latency, percentiles, load-testing]
+    answers: [storage-fit, observability]
+  - id: talk-google-sli
+    title: SLIs, SLOs, SLAs, oh my! (class SRE implements DevOps)
+    speaker: Seth Vargo, Liz Fong-Jones (Google)
+    channel: Google Cloud Tech
+    url: https://www.youtube.com/watch?v=tEylFyxbDLE
+    topics: [slo, sli, error-budget]
+    answers: [observability]
+  - id: talk-ccai-sma
+    title: "CCAI April Webinar: Smart Meter Data Analytics"
+    speaker: Climate Change AI webinar
+    channel: Climate Change AI
+    url: https://www.youtube.com/watch?v=aqNbgRMyD4I
+    topics: [smart-meter, analytics, anomaly]
+    answers: [meter-anomalies]
