@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -36,3 +36,6 @@ a-download-check: ## Zone A: large download read once (MIB_SMALL=48 MIB_LARGE=96
 
 a-ops-check: ## Zone A: DELETE /files/{id}, storages behind Toxiproxy (adds then removes latency toxics), /storages/health with a hung S3
 	python3 services/filegrid-api/scripts/ops_check.py
+
+a-slowlane-check: ## Zone A: big video over the slow lane (MIB=1024 LATENCY=300 LOSS=10): link breaks, upload resumes, hash equal. Clears the lane at the end
+	python3 services/filegrid-api/scripts/slowlane_check.py $(or $(MIB),1024) $(or $(LATENCY),300) $(or $(LOSS),10)
