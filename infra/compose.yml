@@ -50,26 +50,11 @@ services:
       - ./seaweedfs/start.sh:/etc/seaweedfs/start.sh:ro
     networks: [data]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null && wget -qO /dev/null http://127.0.0.1:8333/status"]
+      test: ["CMD-SHELL", "test -f /tmp/buckets-ready && wget -qO /dev/null http://127.0.0.1:8333/status"]
       interval: 5s
       timeout: 3s
       retries: 30
     restart: unless-stopped
-
-  seaweedfs-init:
-    # One-shot: creates the buckets FileGrid expects, then exits.
-    image: chrislusf/seaweedfs:3.80
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        for b in filegrid-outage filegrid-video filegrid-document filegrid-meter; do
-          echo "s3.bucket.create -name $$b" | weed shell -master=seaweedfs:9333 || true
-        done
-        echo buckets ready
-    depends_on:
-      seaweedfs: { condition: service_healthy }
-    networks: [data]
-    restart: "no"
 
   ftp:
     image: stilliard/pure-ftpd:hardened
