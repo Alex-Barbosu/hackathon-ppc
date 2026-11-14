@@ -50,20 +50,22 @@ public class MeterController {
         String traceId = span == null ? null : span.context().traceId();
 
         long started = System.nanoTime();
-        MeterService.Result result;
+        MeterService.Ingested ingested;
         try {
-            result = service.ingest(idempotencyKey, body, traceId);
+            ingested = service.ingest(idempotencyKey, body, traceId);
         } catch (RuntimeException e) {
-            // A failed commit is an error op; the device retries with the same key.
+            // Neither the database nor the spool took it; the meter retries with the same key.
             metrics.recordOp(Category.METER, Storage.DB, FileGridMetrics.Op.WRITE,
                     FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
             throw e;
         }
-        metrics.recordOp(Category.METER, Storage.DB, FileGridMetrics.Op.WRITE,
-                FileGridMetrics.Outcome.OK, Duration.ofNanos(System.nanoTime() - started));
+        // A parked reading is a fallback write: it landed in the spool, not in the database.
+        metrics.recordOp(Category.METER, ingested.spooled() ? Storage.SPOOL : Storage.DB, FileGridMetrics.Op.WRITE,
+                ingested.spooled() ? FileGridMetrics.Outcome.FALLBACK : FileGridMetrics.Outcome.OK,
+                Duration.ofNanos(System.nanoTime() - started));
 
-        // Counted only once the commit above has returned.
-        if (result == MeterService.Result.ACCEPTED) {
+        // Counted only once the reading is committed or durably parked.
+        if (ingested.result() == MeterService.Result.ACCEPTED) {
             metrics.recordMeterReading("accepted");
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(new MeterAck("accepted", idempotencyKey, OffsetDateTime.now()));

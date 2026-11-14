@@ -82,6 +82,8 @@ class FileServiceEncryptionAuditTest {
                 new CategoryPolicy("s3", "db", false, 20, "high", 8, 500, null, null));
         when(policy.primaryStorageFor(Category.DOCUMENT)).thenReturn(Storage.FTP);
         when(policy.primaryStorageFor(Category.OUTAGE)).thenReturn(Storage.S3);
+        when(policy.fallbackStorageFor(Category.DOCUMENT)).thenReturn(Storage.S3);
+        when(policy.fallbackStorageFor(Category.OUTAGE)).thenReturn(Storage.DB);
 
         StorageRegistry storages = mock(StorageRegistry.class);
         when(storages.get(Storage.FTP)).thenReturn(ftp);
@@ -114,7 +116,8 @@ class FileServiceEncryptionAuditTest {
         };
 
         service = new FileService(policy, storages, repo, new FileGridMetrics(registry),
-                new ReceiptSigner("test-secret-for-receipts"), tracer, new EnvelopeCrypto("ab".repeat(32)), audit, tx);
+                new ReceiptSigner("test-secret-for-receipts"), tracer, new EnvelopeCrypto("ab".repeat(32)), audit, tx,
+                new ro.ppc.filegrid.resilience.StorageGuard(registry, 10, 3, 50f, 10), mock(ro.ppc.filegrid.spool.SpoolRepository.class));
     }
 
     private static byte[] document(int size) {

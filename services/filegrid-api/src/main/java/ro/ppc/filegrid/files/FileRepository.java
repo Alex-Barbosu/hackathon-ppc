@@ -71,6 +71,12 @@ public class FileRepository {
         return rows.stream().findFirst();
     }
 
+    /** Points a file at where its bytes are now (the spool replay moves them to the real storage). */
+    public void relocate(UUID id, String storage, String objectKey, String status) {
+        jdbc.update("UPDATE files SET storage = ?, object_key = ?, status = ? WHERE id = ?::uuid",
+                storage, objectKey, status, id.toString());
+    }
+
     public void markVerified(UUID id) {
         jdbc.update("UPDATE files SET last_verified_at = now() WHERE id = ?::uuid", id.toString());
     }

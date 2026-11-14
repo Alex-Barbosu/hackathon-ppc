@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -18,3 +18,6 @@ a-doc-check: ## Zone A: document proof (TAMPER=1 adds the audit tamper demo): ci
 
 a-audit-check: ## Zone A: re-compute the audit_log hash chain from the database (exit 1 if broken)
 	python3 services/filegrid-api/scripts/audit_check.py
+
+a-fallback-check: ## Zone A: STOPS then restarts seaweedfs and postgres (SKIP_DB=1 keeps postgres): fallback, spool drain, circuit, meter spool
+	python3 services/filegrid-api/scripts/fallback_check.py $(if $(SKIP_DB),--skip-db)

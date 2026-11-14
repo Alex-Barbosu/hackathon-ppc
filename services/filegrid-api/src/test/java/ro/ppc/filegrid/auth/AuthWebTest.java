@@ -74,7 +74,8 @@ class AuthWebTest {
     void stubs() {
         when(fileRepository.search(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new FileRepository.SearchResult(List.of(), 0));
-        when(meterService.ingest(any(), any(), any())).thenReturn(MeterService.Result.ACCEPTED);
+        when(meterService.ingest(any(), any(), any()))
+                .thenReturn(new MeterService.Ingested(MeterService.Result.ACCEPTED, false));
     }
 
     private String bearer(Role role) {
@@ -239,7 +240,7 @@ class AuthWebTest {
 
     @Test
     void onlyAnAdminMaySetForceStorage() throws Exception {
-        when(fileService.store(any(), any())).thenReturn(new FileReceipt(UUID.randomUUID().toString(),
+        when(fileService.store(any(), any(FileService.BodySource.class))).thenReturn(new FileReceipt(UUID.randomUUID().toString(),
                 "outage", "db", 1, "ab", OffsetDateTime.now(), false, null, "sig"));
         var file = new MockMultipartFile("file", "a.bin", "application/octet-stream", new byte[] {1});
 

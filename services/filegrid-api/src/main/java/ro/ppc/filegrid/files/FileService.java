@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import javax.crypto.SecretKey;
@@ -25,6 +27,12 @@ import ro.ppc.filegrid.files.dto.VerifyResult;
 import ro.ppc.filegrid.metrics.FileGridMetrics;
 import ro.ppc.filegrid.policy.CategoryPolicy;
 import ro.ppc.filegrid.policy.PolicyService;
+import ro.ppc.filegrid.resilience.ClientStreamException;
+import ro.ppc.filegrid.resilience.StorageDownException;
+import ro.ppc.filegrid.resilience.StorageGuard;
+import ro.ppc.filegrid.resilience.StorageOp;
+import ro.ppc.filegrid.resilience.TrackingInputStream;
+import ro.ppc.filegrid.spool.SpoolRepository;
 import ro.ppc.filegrid.storage.CountingInputStream;
 import ro.ppc.filegrid.storage.StorageAdapter;
 import ro.ppc.filegrid.storage.StorageRegistry;
@@ -42,6 +50,10 @@ import ro.ppc.filegrid.storage.WriteMeta;
  *
  * <p>Auditing fails closed: a read is recorded before any byte is released, and if the audit log
  * cannot be written the read is refused. A write and its audit event commit in one transaction.
+ *
+ * <p>Writes follow the policy: the primary storage first, and if its circuit is open or the
+ * write fails, the policy's fallback (another storage, or the local spool). The client is told
+ * the file is stored only after the bytes are durable where they were written.
  */
 @Service
 public class FileService {
@@ -60,11 +72,14 @@ public class FileService {
     private final EnvelopeCrypto crypto;
     private final AuditLogService audit;
     private final TransactionTemplate tx;
+    private final StorageGuard guard;
+    private final SpoolRepository spoolItems;
 
     public FileService(PolicyService policy, StorageRegistry storages, FileRepository files,
                        FileGridMetrics metrics, ReceiptSigner signer,
                        io.micrometer.tracing.Tracer tracer, EnvelopeCrypto crypto,
-                       AuditLogService audit, TransactionTemplate tx) {
+                       AuditLogService audit, TransactionTemplate tx, StorageGuard guard,
+                       SpoolRepository spoolItems) {
         this.policy = policy;
         this.storages = storages;
         this.files = files;
@@ -74,6 +89,8 @@ public class FileService {
         this.crypto = crypto;
         this.audit = audit;
         this.tx = tx;
+        this.guard = guard;
+        this.spoolItems = spoolItems;
     }
 
     /** Where a category's bytes go. {@code forceStorage} (admin, Storage Lab) overrides policy. */
@@ -82,116 +99,211 @@ public class FileService {
             String contentType, long sizeBytes, String uploadedBy, Storage forceStorage) {
     }
 
+    /**
+     * Gives the upload body. Asked once per storage tried: if the primary fails halfway, the
+     * fallback needs the bytes from the start, so a new stream is opened for each attempt.
+     */
+    @FunctionalInterface
+    public interface BodySource {
+        InputStream open() throws IOException;
+    }
+
     // ----------------------------------------------------------------- write
 
+    /** For a body that can be read only once: no second attempt is possible if the first fails. */
     public FileReceipt store(UploadRequest req, InputStream body) {
-        var catPolicy = policy.policyFor(req.category());
+        boolean[] used = {false};
+        return store(req, () -> {
+            if (used[0]) {
+                throw new IOException("the request body can only be read once");
+            }
+            used[0] = true;
+            return body;
+        });
+    }
+
+    public FileReceipt store(UploadRequest req, BodySource source) {
+        CategoryPolicy catPolicy = policy.policyFor(req.category());
         if (req.sizeBytes() > catPolicy.maxSizeBytes()) {
             throw ApiException.tooLarge(req.category().slug() + " exceeds maxSizeMb="
                     + catPolicy.maxSizeMb());
         }
 
-        Storage target = req.forceStorage() != null
-                ? req.forceStorage()
-                : policy.primaryStorageFor(req.category());
-        StorageAdapter adapter = storages.get(target);
-
+        List<Storage> plan = plan(req, catPolicy);
         UUID id = UUID.randomUUID();
+        List<String> tried = new ArrayList<>();
+        for (int i = 0; i < plan.size(); i++) {
+            Storage target = plan.get(i);
+            long started = System.nanoTime();
+            try {
+                return storeAt(req, source, catPolicy, id, plan.get(0), target, i > 0);
+            } catch (StorageDownException e) {
+                tried.add(target.slug());
+                if (!e.circuitOpen()) {
+                    // A refusal by an open circuit never touched the backend, so it is not an error of its own.
+                    metrics.recordOp(req.category(), e.storage(), FileGridMetrics.Op.WRITE,
+                            FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
+                }
+                log.warn("storage unavailable for a write file_id={} category={} storage={} circuitOpen={}",
+                        id, req.category().slug(), e.storage().slug(), e.circuitOpen());
+            } catch (ClientStreamException e) {
+                throw ApiException.badRequest("the upload was interrupted before it finished");
+            }
+        }
+        throw ApiException.storageUnavailable("no storage could take the file (tried " + String.join(", ", tried) + ")");
+    }
+
+    /** Storages to try, in order: the policy's primary then its fallback. A forced storage has no fallback. */
+    private List<Storage> plan(UploadRequest req, CategoryPolicy catPolicy) {
+        if (req.forceStorage() != null) {
+            return List.of(req.forceStorage());
+        }
+        Storage primary = policy.primaryStorageFor(req.category());
+        Storage fallback = policy.fallbackStorageFor(req.category());
+        return fallback == primary ? List.of(primary) : List.of(primary, fallback);
+    }
+
+    private FileReceipt storeAt(UploadRequest req, BodySource source, CategoryPolicy catPolicy, UUID id,
+                                Storage intended, Storage target, boolean fallback) {
         String traceId = currentTraceId();
         boolean encrypt = catPolicy.encrypt();
+        // A fresh key per attempt: nothing from a failed attempt is reused.
         EnvelopeCrypto.Envelope envelope = encrypt ? crypto.newEnvelope(id) : null;
+        StorageAdapter adapter = storages.get(target);
 
-        // Count and hash the ORIGINAL bytes as they are pulled; encryption (if any) sits after
-        // the digest, so the receipt hash is of the plaintext.
-        CountingInputStream counted = new CountingInputStream(body);
-        DigestInputStream hashed = new DigestInputStream(counted, Hashing.sha256());
-        InputStream toStore = encrypt ? crypto.encrypt(hashed, envelope, id) : hashed;
-        Sink sink = new Sink(adapter, target, id, req, toStore, hashed, counted,
-                // Ciphertext reveals nothing about the file type, so do not hand the real one to storage.
-                encrypt ? "application/octet-stream" : req.contentType(),
-                encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes());
+        try (InputStream raw = source.open()) {
+            // Count and hash the ORIGINAL bytes as they are pulled; encryption (if any) sits after
+            // the digest, so the receipt hash is of the plaintext.
+            TrackingInputStream tracked = new TrackingInputStream(raw);
+            CountingInputStream counted = new CountingInputStream(tracked);
+            DigestInputStream hashed = new DigestInputStream(counted, Hashing.sha256());
+            InputStream toStore = encrypt ? crypto.encrypt(hashed, envelope, id) : hashed;
+            Sink sink = new Sink(adapter, target, id, req, toStore, tracked, hashed, counted,
+                    // Ciphertext reveals nothing about the file type, so do not hand the real one to storage.
+                    encrypt ? "application/octet-stream" : req.contentType(),
+                    encrypt ? EnvelopeCrypto.ciphertextLength(req.sizeBytes()) : req.sizeBytes());
 
-        Written written;
-        try {
-            if (target == Storage.DB) {
-                // A database file is its blob plus its row, committed together. The blob goes in
-                // first (its hash is only known once it has streamed), so the foreign key is
-                // checked at commit. A failure rolls the blob back with everything else.
-                written = tx.execute(status -> {
-                    Written w = write(sink);
-                    record(catPolicy, req, id, target, w, encrypt, envelope, traceId);
-                    return w;
-                });
-            } else {
-                // FTP and S3 are not part of a database transaction: bytes first, then the row and
-                // its audit event together. If that fails, the bytes are removed again.
-                Written w = write(sink);
-                try {
-                    tx.executeWithoutResult(status -> record(catPolicy, req, id, target, w, encrypt, envelope, traceId));
-                } catch (RuntimeException e) {
-                    try {
-                        adapter.delete(id.toString());
-                    } catch (Exception ignored) {
-                        log.warn("could not remove orphaned object file_id={}", id);
-                    }
-                    throw e;
-                }
-                written = w;
-            }
-        } catch (ApiException e) {
-            throw e;
-        } catch (RuntimeException e) {
+            Written written = persist(sink, catPolicy, intended, encrypt, envelope, traceId);
+
             metrics.recordOp(req.category(), target, FileGridMetrics.Op.WRITE,
-                    FileGridMetrics.Outcome.ERROR, Duration.ZERO);
+                    fallback ? FileGridMetrics.Outcome.FALLBACK : FileGridMetrics.Outcome.OK, written.took());
+            metrics.recordBytes(req.category(), target, "in", written.plainSize());
+            // Log file_id only: never the document name or content.
+            log.info("stored file_id={} category={} storage={} size={} encrypted={} fallback={}",
+                    id, req.category().slug(), target.slug(), written.plainSize(), encrypt, fallback);
+
+            String signature = signer.sign(id.toString(), req.category().slug(), target.slug(),
+                    written.plainSize(), written.sha());
+            return new FileReceipt(id.toString(), req.category().slug(), target.slug(),
+                    written.plainSize(), written.sha(), java.time.OffsetDateTime.now(), encrypt, traceId, signature);
+        } catch (IOException e) {
+            throw ApiException.badRequest("cannot read the upload");
+        }
+    }
+
+    /**
+     * Gets the bytes onto {@code sink.target()} and records the file. Throws
+     * {@link StorageDownException} if that storage cannot take it, so the caller can try the fallback.
+     */
+    private Written persist(Sink sink, CategoryPolicy catPolicy, Storage intended, boolean encrypt,
+                            EnvelopeCrypto.Envelope envelope, String traceId) {
+        Storage target = sink.target();
+        UploadRequest req = sink.req();
+        UUID id = sink.id();
+
+        if (target == Storage.DB) {
+            // A database file is its blob plus its row, committed together. The blob goes in first (its
+            // hash is only known once it has streamed), so the foreign key is checked at commit. A failure
+            // rolls the blob back with everything else, and counts against the database circuit.
+            return guard.call(Storage.DB, () -> tx.execute(status -> {
+                Written w = writeUnchecked(sink);
+                record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId);
+                return w;
+            }));
+        }
+
+        Written w;
+        if (target == Storage.SPOOL) {
+            // The spool is local disk: no circuit, and a failure here is a real error.
+            try {
+                w = write(sink);
+            } catch (ClientStreamException e) {
+                throw e;
+            } catch (Exception e) {
+                log.error("the spool could not take the file file_id={}", id);
+                throw ApiException.storageUnavailable("the spool could not take the file");
+            }
+        } else {
+            w = guard.call(target, () -> write(sink));
+        }
+
+        // FTP, S3 and the spool are not part of a database transaction: bytes first, then the row and its
+        // audit event together. If recording fails the bytes are removed again, so nothing is left orphaned.
+        try {
+            guard.call(Storage.DB, () -> {
+                tx.executeWithoutResult(status ->
+                        record(catPolicy, req, id, target, intended, w, encrypt, envelope, traceId));
+                return null;
+            });
+        } catch (RuntimeException e) {
+            removeQuietly(sink.adapter(), w.ref().key(), id);
+            // The database is needed for any fallback too, so do not try another storage.
             log.error("recording the file failed file_id={}", id);
             throw ApiException.storageUnavailable("could not record the file; nothing was stored");
         }
-
-        metrics.recordOp(req.category(), target, FileGridMetrics.Op.WRITE,
-                FileGridMetrics.Outcome.OK, written.took());
-        metrics.recordBytes(req.category(), target, "in", written.plainSize());
-        // Log file_id only: never the document name or content.
-        log.info("stored file_id={} category={} storage={} size={} encrypted={}",
-                id, req.category().slug(), target.slug(), written.plainSize(), encrypt);
-
-        String signature = signer.sign(id.toString(), req.category().slug(), target.slug(),
-                written.plainSize(), written.sha());
-        return new FileReceipt(id.toString(), req.category().slug(), target.slug(),
-                written.plainSize(), written.sha(), java.time.OffsetDateTime.now(), encrypt, traceId, signature);
+        return w;
     }
 
     /** Everything needed to push one upload into a backend. */
     private record Sink(StorageAdapter adapter, Storage target, UUID id, UploadRequest req, InputStream stream,
-                        DigestInputStream hashed, CountingInputStream counted, String storedType, long storedLength) {
+                        TrackingInputStream tracked, DigestInputStream hashed, CountingInputStream counted,
+                        String storedType, long storedLength) {
     }
 
     /** What the backend took: the hash and size of the ORIGINAL bytes, and how long it took. */
     private record Written(StoredRef ref, String sha, long plainSize, Duration took) {
     }
 
-    private Written write(Sink s) {
+    private Written write(Sink s) throws Exception {
         long started = System.nanoTime();
         StoredRef ref;
         try {
             ref = s.adapter().write(s.stream(), s.id().toString(),
                     WriteMeta.of(s.req().category(), s.storedType(), s.storedLength()));
         } catch (Exception e) {
-            metrics.recordOp(s.req().category(), s.target(), FileGridMetrics.Op.WRITE,
-                    FileGridMetrics.Outcome.ERROR, Duration.ofNanos(System.nanoTime() - started));
-            throw ApiException.storageUnavailable("write to " + s.target().slug() + " failed: " + e.getMessage());
+            if (s.tracked().failed()) {
+                // Reading the request body failed: the client's connection, not this storage.
+                throw new ClientStreamException(s.tracked().failure());
+            }
+            throw e;
         }
         return new Written(ref, Hashing.hex(s.hashed().getMessageDigest().digest()), s.counted().count(),
                 Duration.ofNanos(System.nanoTime() - started));
     }
 
-    /** The files row, and the audit event when the policy asks for one. Runs inside a transaction. */
-    private void record(CategoryPolicy catPolicy, UploadRequest req, UUID id, Storage target, Written w,
-                        boolean encrypt, EnvelopeCrypto.Envelope envelope, String traceId) {
+    /** {@link #write} for use inside a transaction callback, which cannot throw a checked exception. */
+    private Written writeUnchecked(Sink s) {
+        try {
+            return write(s);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("the database write failed", e);
+        }
+    }
+
+    /** The files row, its audit event when the policy asks for one, and the spool index when parked. */
+    private void record(CategoryPolicy catPolicy, UploadRequest req, UUID id, Storage target, Storage intended,
+                        Written w, boolean encrypt, EnvelopeCrypto.Envelope envelope, String traceId) {
+        boolean parked = target == Storage.SPOOL;
         FileRow row = new FileRow(id, req.category().slug(), target.slug(), w.ref().key(),
                 w.plainSize(), w.sha(), req.contentType(), req.originalName(), req.description(),
-                req.region(), null, req.uploadedBy(), encrypt, "stored", traceId, null, null);
+                req.region(), null, req.uploadedBy(), encrypt, parked ? "spooled" : "stored", traceId, null, null);
         files.insert(row, envelope == null ? null : envelope.wrappedKey(),
                 envelope == null ? null : envelope.iv());
+        if (parked) {
+            spoolItems.insert(id, req.category(), intended, w.ref().key());
+        }
         if (catPolicy.auditEnabled()) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("category", row.category());
@@ -200,6 +312,14 @@ public class FileService {
             details.put("sha256", w.sha());
             details.put("encrypted", encrypt);
             audit.append(req.uploadedBy(), "file.write", id, details);
+        }
+    }
+
+    private void removeQuietly(StorageAdapter adapter, String key, UUID id) {
+        try {
+            adapter.delete(key);
+        } catch (Exception ignored) {
+            log.warn("could not remove orphaned object file_id={}", id);
         }
     }
 
@@ -302,10 +422,11 @@ public class FileService {
 
     /**
      * Opens the stored object as the original bytes: as stored for a clear file, decrypted for an
-     * encrypted one. Returns null if the object is missing.
+     * encrypted one. Returns null if the object is missing. The open goes through the storage's
+     * circuit, so a storage known to be down answers at once instead of making the caller wait.
      */
     private InputStream openPlain(StorageAdapter adapter, FileRow row) throws Exception {
-        InputStream raw = adapter.read(row.objectKey());
+        InputStream raw = guarded(adapter, () -> adapter.read(row.objectKey()));
         if (raw == null || !row.encrypted()) {
             return raw;
         }
@@ -313,6 +434,11 @@ public class FileService {
                 () -> new IllegalStateException("encrypted file has no key material file_id=" + row.id()));
         SecretKey dataKey = crypto.unwrap(material.wrappedKey(), row.id());
         return crypto.decrypt(raw, dataKey, material.iv(), row.id());
+    }
+
+    private <T> T guarded(StorageAdapter adapter, StorageOp<T> op) throws Exception {
+        // The spool is local disk and has no circuit.
+        return adapter.kind() == Storage.SPOOL ? op.run() : guard.call(adapter.kind(), op);
     }
 
     /** Hex SHA-256 of the original bytes as stored; {@link #DECRYPTION_FAILED} if ciphertext was altered; null if missing. */

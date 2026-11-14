@@ -54,6 +54,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return body(HttpStatus.BAD_REQUEST, ApiError.Code.BAD_REQUEST, e.getMessage());
     }
 
+    /** A storage that is down, reached from a route with no fallback (a read, a verify). */
+    @ExceptionHandler(ro.ppc.filegrid.resilience.StorageDownException.class)
+    public ResponseEntity<ApiError> onStorageDown(ro.ppc.filegrid.resilience.StorageDownException e) {
+        return body(HttpStatus.SERVICE_UNAVAILABLE, ApiError.Code.STORAGE_UNAVAILABLE,
+                "storage " + e.storage().slug() + " is unavailable");
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> onIllegalArgument(IllegalArgumentException e) {
         return body(HttpStatus.BAD_REQUEST, ApiError.Code.BAD_REQUEST, e.getMessage());

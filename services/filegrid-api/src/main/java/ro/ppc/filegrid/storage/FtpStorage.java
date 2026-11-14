@@ -111,7 +111,13 @@ public class FtpStorage implements StorageAdapter {
 
     private FTPSClient connect() throws IOException {
         FTPSClient ftp = new FTPSClient(); // explicit TLS by default
+        // A dead or unreachable server must fail in seconds, not hang a request: the circuit
+        // breaker and the fallback depend on getting an answer.
+        ftp.setConnectTimeout(3000);
+        ftp.setDefaultTimeout(60_000);
+        ftp.setDataTimeout(java.time.Duration.ofSeconds(60));
         ftp.connect(host, port);
+        ftp.setSoTimeout(60_000);
         int reply = ftp.getReplyCode();
         if (!FTPReply.isPositiveCompletion(reply)) {
             ftp.disconnect();

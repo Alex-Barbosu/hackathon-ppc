@@ -69,7 +69,9 @@ class FileServiceIntegrityTest {
                     public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
                         return action.doInTransaction(null);
                     }
-                });
+                },
+                new ro.ppc.filegrid.resilience.StorageGuard(new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 10, 3, 50f, 10),
+                mock(ro.ppc.filegrid.spool.SpoolRepository.class));
     }
 
     private void storedRowWithHashOf(byte[] bytesForHash) {

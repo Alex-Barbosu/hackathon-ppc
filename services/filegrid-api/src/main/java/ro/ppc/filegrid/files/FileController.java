@@ -75,10 +75,10 @@ public class FileController {
         var req = new FileService.UploadRequest(cat, reg, description,
                 file.getOriginalFilename(), contentType, file.getSize(), caller.username(), force);
 
-        try (InputStream body = file.getInputStream()) {
-            FileReceipt receipt = fileService.store(req, body);
-            return ResponseEntity.status(HttpStatus.CREATED).body(receipt);
-        }
+        // The service may need the bytes again if the primary storage fails halfway (the fallback
+        // starts from the beginning), so it asks for a fresh stream each time instead of being handed one.
+        FileReceipt receipt = fileService.store(req, file::getInputStream);
+        return ResponseEntity.status(HttpStatus.CREATED).body(receipt);
     }
 
     /** GET /files — paged search. */
@@ -167,7 +167,12 @@ public class FileController {
 
     private static Storage parseStorage(String s) {
         try {
-            return Storage.fromSlug(s);
+            Storage storage = Storage.fromSlug(s);
+            if (storage == Storage.SPOOL) {
+                // The contract allows db, s3 and ftp. The spool is only ever a fallback.
+                throw new IllegalArgumentException("spool cannot be forced");
+            }
+            return storage;
         } catch (IllegalArgumentException e) {
             throw ApiException.badRequest("unknown storage: " + s);
         }

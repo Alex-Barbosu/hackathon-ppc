@@ -23,6 +23,7 @@
     <commons.net.version>3.11.1</commons.net.version>
     <json.schema.version>1.5.2</json.schema.version>
     <testcontainers.version>1.20.4</testcontainers.version>
+    <resilience4j.version>2.3.0</resilience4j.version>
   </properties>
 
   <dependencyManagement>
@@ -84,6 +85,13 @@
       <groupId>commons-net</groupId>
       <artifactId>commons-net</artifactId>
       <version>${commons.net.version}</version>
+    </dependency>
+
+    <!-- Circuit breaker per storage. Core module only: no starter, so nothing is auto-configured. -->
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-circuitbreaker</artifactId>
+      <version>${resilience4j.version}</version>
     </dependency>
 
     <!-- Policy: YAML parse + JSON Schema validation against policy.schema.json -->
