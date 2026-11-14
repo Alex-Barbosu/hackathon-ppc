@@ -1,12 +1,25 @@
-# Zone B. The ONLY service that will get the Docker socket (allowlisted container names),
-# added when zone B implements stop/start. Never mount it anywhere else.
+# Zone B. The ONLY service with the Docker socket. chaos-control uses it for the postgres,
+# seaweedfs and ftp containers of this Compose project and nothing else (allowlist in
+# src/storages.ts). Never mount the socket anywhere else.
 services:
   chaos-control:
     build: .
     environment:
-      TOXIPROXY_URL: http://toxiproxy:8474
       JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-filegrid}
+      TOXIPROXY_URL: http://toxiproxy:8474
+      METER_SIMULATOR_URL: http://meter-simulator:9100
+      # POST /chaos/reset returns the meters to this rate.
+      METER_READINGS_PER_SEC: ${METER_READINGS_PER_SEC:-1}
+      SEAWEED_FILER_URL: http://seaweedfs:8888
+      FILEGRID_FILES_URL: http://filegrid-api:8080/api/v1/files
+    volumes:
+      # Rootless Docker or a custom socket: set DOCKER_HOST_SOCKET in .env.
+      - ${DOCKER_HOST_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    # The socket already grants a lot; keep the process itself as small as possible.
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
     networks: [app, data]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8090/health"]
