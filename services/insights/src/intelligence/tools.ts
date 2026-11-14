@@ -35,7 +35,7 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
   },
   {
     name: "query_view",
-    description: "Read an aggregate view of the database. files_daily: files and bytes per day, category and storage. meter_anomalies: unusual meters (drop, spike, stuck, voltage sag) with a score. outage_hotspots: outage records per county or region. alert_history: which alerts fired and how often. Returns at most 50 rows.",
+    description: "Read an aggregate view of the database. files_daily: files and bytes per day, category and storage. meter_anomalies: unusual meters (drop, spike, stuck, voltage sag) with a score. outage_hotspots: outage records per county (or region when no county was given), with the latest fault time and the top stations named by the recordings. alert_history: which alerts fired and how often. Returns at most 50 rows.",
     input_schema: {
       type: "object",
       properties: {

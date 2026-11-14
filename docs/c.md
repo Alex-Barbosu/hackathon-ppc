@@ -122,8 +122,10 @@ Code in `services/insights/src/intelligence`, migration `V302`, web in `features
   cached briefing.
 - **Anomalies and hotspots** come from `insights.v_meter_anomaly_candidates` (leave-one-out z-score per meter and 15-minute slot,
   stuck run, voltage below 207 V) and `insights.v_outage_by_county`. `meter_intervals` is empty today, so anomalies are `[]`; the
-  view was checked against synthetic rows in a rolled-back transaction. Outage uploads carry no county yet, so hotspots are per
-  region under "Not recorded".
+  view was checked against synthetic rows in a rolled-back transaction. Hotspots (V303) count outage records per county, which
+  dispatch picks on the Upload page, and name the top stations and the latest fault time read from each record's COMTRADE file.
+  Records without a county stay per region under "Not recorded". A fault time from a recorder with no time zone is labelled
+  "read as UTC" in the Library. `make a-seed-outages` loads a realistic week of records.
 - **Guards:** every endpoint except the webhook verifies the JWT signature here (insights spends money, so it cannot lean on
   filegrid-api). The Storage Lab routes did not: a forged `role: admin` payload could start a benchmark; fixed. `AI_MAX_CALLS_PER_HOUR`
   (default 120) caps model calls across all three features. It is a loop guard, not billing: **set the spend limit in the Anthropic Console.**
@@ -132,4 +134,4 @@ Code in `services/insights/src/intelligence`, migration `V302`, web in `features
 
 ### Requests to other zones
 - **Zone B:** add `NARRATOR_MODEL`, `ANALYST_MODEL` and `AI_MAX_CALLS_PER_HOUR` to `.env.example` (compose already defaults them).
-- **Zone A:** `meter_intervals` is still empty (anomalies need it); outage uploads need a `county` (hotspots need it).
+- **Zone A:** `meter_intervals` is still empty (anomalies need it). County on outage uploads: done in the zone A county PR.

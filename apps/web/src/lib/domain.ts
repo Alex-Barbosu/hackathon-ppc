@@ -2,6 +2,8 @@ import type { components } from "../api/schema";
 
 export type Category = components["schemas"]["Category"];
 export type Region = components["schemas"]["Region"];
+export type County = components["schemas"]["County"];
+export type ComtradeRecording = components["schemas"]["ComtradeRecording"];
 export type Location = components["schemas"]["Location"];
 export type FileReceipt = components["schemas"]["FileReceipt"];
 export type FileMeta = components["schemas"]["FileMeta"];
@@ -20,6 +22,16 @@ export const REGIONS: ReadonlyArray<{ id: Region; label: string }> = [
   { id: "banat", label: "Banat" },
   { id: "dobrogea", label: "Dobrogea" },
 ];
+
+// The contract's County enum with its region. Same order as the meter simulator: largest county first.
+export const COUNTIES: ReadonlyArray<{ id: County; region: Region }> = [
+  { id: "București", region: "muntenia" }, { id: "Ilfov", region: "muntenia" }, { id: "Giurgiu", region: "muntenia" },
+  { id: "Timiș", region: "banat" }, { id: "Arad", region: "banat" }, { id: "Hunedoara", region: "banat" },
+  { id: "Caraș-Severin", region: "banat" }, { id: "Constanța", region: "dobrogea" }, { id: "Tulcea", region: "dobrogea" },
+  { id: "Călărași", region: "dobrogea" }, { id: "Ialomița", region: "dobrogea" },
+];
+
+export const countiesIn = (region: Region): County[] => COUNTIES.filter((c) => c.region === region).map((c) => c.id);
 
 export type Storage = components["schemas"]["Storage"];
 export type LabRun = components["schemas"]["StorageLabRun"];

@@ -68,7 +68,7 @@ export interface paths {
         /**
          * Create a tus 1.0 resumable upload (videos; any category allowed)
          * @description Standard tus 1.0.0 creation. `Upload-Metadata` must carry base64 `category` and
-         *     `filename`; optional `region`. Follow-up `PATCH`/`HEAD` go to the returned Location.
+         *     `filename`; optional `region` and `county` (same rules as `POST /files`). Follow-up `PATCH`/`HEAD` go to the returned Location.
          */
         post: operations["createResumableUpload"];
         delete?: never;
@@ -491,7 +491,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Outage counts per county */
+        /** Outage counts per county, with the stations behind them */
         get: operations["listOutageHotspots"];
         put?: never;
         post?: never;
@@ -569,6 +569,49 @@ export interface components {
         Role: "field" | "dispatch" | "connections" | "admin" | "meter-device";
         /** @enum {string} */
         Region: "muntenia" | "banat" | "dobrogea";
+        /**
+         * @description Counties served by the three regions, each in exactly one region. muntenia: București, Ilfov,
+         *     Giurgiu. banat: Timiș, Arad, Hunedoara, Caraș-Severin. dobrogea: Constanța, Tulcea, Călărași,
+         *     Ialomița. Same list as the meter simulator.
+         * @example Timiș
+         * @enum {string}
+         */
+        County: "București" | "Ilfov" | "Giurgiu" | "Timiș" | "Arad" | "Hunedoara" | "Caraș-Severin" | "Constanța" | "Tulcea" | "Călărași" | "Ialomița";
+        /**
+         * @description Read by FileGrid from an outage record's COMTRADE configuration (.cfg, or the CFG part of a .cff)
+         *     at upload. Every field but `format` may be absent when the file does not carry it.
+         */
+        ComtradeRecording: {
+            /** @constant */
+            format: "comtrade";
+            /** @example Statia 110kV Timisoara Sud */
+            station?: string;
+            /** @example DFR-07 */
+            recorder?: string;
+            /** @example 2013 */
+            revision?: string;
+            /**
+             * Format: date-time
+             * @description Trigger time
+             */
+            faultTime?: string;
+            /**
+             * Format: date-time
+             * @description First sample
+             */
+            startTime?: string;
+            /** @example 1200 */
+            recordingMs?: number;
+            /** @example 50 */
+            lineHz?: number;
+            /**
+             * @description How the times were turned into UTC. `offset`: the file's 2013 `time_code` gave the recorder's
+             *     offset from UTC and it was applied. `utc`: `time_code` was 0. `assumed-utc`: the file has no
+             *     `time_code` (1991/1999 files), so the recorder's clock is read as UTC; show this to the user.
+             * @enum {string}
+             */
+            clock?: "utc" | "offset" | "assumed-utc";
+        };
         Health: {
             /**
              * @example up
@@ -624,7 +667,9 @@ export interface components {
             /** @example application/octet-stream */
             contentType?: string;
             region?: components["schemas"]["Region"];
+            county?: components["schemas"]["County"];
             description?: string;
+            recording?: components["schemas"]["ComtradeRecording"];
             /** @example dispatch */
             uploadedBy?: string;
             /** Format: date-time */
@@ -874,7 +919,10 @@ export interface components {
             explanation?: string;
         };
         Hotspot: {
-            /** @example Timiș */
+            /**
+             * @description A `County`, or `Not recorded` for outages uploaded without one (grouped by region).
+             * @example Timiș
+             */
             county: string;
             region: components["schemas"]["Region"];
             /** @example 45.75 */
@@ -885,6 +933,20 @@ export interface components {
             outages: number;
             /** @example 412 */
             totalMinutes?: number;
+            /**
+             * Format: date-time
+             * @description Latest COMTRADE fault time in this county
+             */
+            lastFaultAt?: string;
+            /** @description Stations named by the outage records' COMTRADE files, most outages first (at most 5). */
+            stations?: {
+                /** @example Statia 110kV Timisoara Sud */
+                station: string;
+                /** @example 6 */
+                outages: number;
+                /** Format: date-time */
+                lastFaultAt?: string;
+            }[];
         };
         StorageLabLatency: {
             p50Ms: number;
@@ -1047,6 +1109,7 @@ export interface operations {
                 /** @description Free text over name and description */
                 q?: string;
                 region?: components["schemas"]["Region"];
+                county?: components["schemas"]["County"];
                 from?: string;
                 to?: string;
                 page?: number;
@@ -1084,6 +1147,12 @@ export interface operations {
                 "multipart/form-data": {
                     category: components["schemas"]["Category"];
                     region?: components["schemas"]["Region"];
+                    /**
+                     * @description Where the outage happened (outage records; accepted for any category). When `region` is
+                     *     also given it must be the county's region, else 400; when `region` is omitted it is
+                     *     taken from the county.
+                     */
+                    county?: components["schemas"]["County"];
                     description?: string;
                     /** Format: binary */
                     file: string;

@@ -1,10 +1,15 @@
+import { scrub } from "./privacy.js";
 import { iso, num, str, type Db, type Row } from "./db.js";
 
 export type AnomalyKind = "consumption_drop" | "stuck_meter" | "voltage_sag" | "spike";
 export interface Anomaly {
   meterId: string; region?: string; county?: string; kind: AnomalyKind; score: number; at: string; explanation: string;
 }
-export interface Hotspot { county: string; region: string; lat?: number; lon?: number; outages: number; totalMinutes: number }
+export interface HotspotStation { station: string; outages: number; lastFaultAt?: string }
+export interface Hotspot {
+  county: string; region: string; lat?: number; lon?: number; outages: number; totalMinutes: number;
+  lastFaultAt?: string; stations: HotspotStation[];
+}
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -49,14 +54,28 @@ export async function listAnomalies(db: Db, region?: string, limit = 50): Promis
   });
 }
 
+// pg returns jsonb already parsed; anything that is not a well-formed station row is dropped, not guessed at.
+function stationsOf(v: unknown): HotspotStation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x: unknown) => {
+    if (typeof x !== "object" || x === null) return [];
+    const o = x as Record<string, unknown>;
+    if (typeof o.station !== "string" || !o.station) return [];
+    // A station name is read from an uploaded file's first line, so it is scrubbed like any text bound for the model.
+    return [{ station: scrub(o.station).slice(0, 80), outages: num(o.outages), ...(o.last_fault_at ? { lastFaultAt: iso(new Date(str(o.last_fault_at))) } : {}) }];
+  });
+}
+
 export async function listHotspots(db: Db, limit = 50): Promise<Hotspot[]> {
   const { rows } = await db.query(
-    "SELECT county, region, lat, lon, outages, total_minutes::float8 AS total_minutes FROM insights.v_outage_by_county ORDER BY outages DESC LIMIT $1",
+    "SELECT county, region, lat, lon, outages, total_minutes::float8 AS total_minutes, last_fault_at, stations FROM insights.v_outage_by_county ORDER BY outages DESC LIMIT $1",
     [Math.min(limit, 100)],
   );
   return rows.map((r) => ({
     county: str(r.county), region: str(r.region), outages: num(r.outages), totalMinutes: num(r.total_minutes),
     ...(r.lat !== null && r.lat !== undefined ? { lat: num(r.lat), lon: num(r.lon) } : {}),
+    ...(r.last_fault_at ? { lastFaultAt: iso(r.last_fault_at) } : {}),
+    stations: stationsOf(r.stations),
   }));
 }
 
