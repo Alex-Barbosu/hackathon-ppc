@@ -1,71 +1,109 @@
-// Zone B placeholder. Sends one fake reading per tick to TARGET_URL (the mock API in the
-// base) so the pipeline and metrics are wired end to end. The real simulator (regions,
-// load curves, retries with the same Idempotency-Key, peak profile) is zone B's backlog.
+// Meter simulator: N virtual smart meters in Muntenia, Banat and Dobrogea pushing reading
+// files to FileGrid (gating requirement 7). Control surface on port 9100, internal only:
+// the gateway does not route here; the public way in is POST /chaos/meters (chaos-control).
 import Fastify from "fastify";
-import { Counter, Gauge, Registry, collectDefaultMetrics } from "prom-client";
+import { loadConfig, MAX_RATE, type Profile } from "./config.js";
+import { createMetrics } from "./metrics.js";
+import { Simulator } from "./simulator.js";
+import { loadState, saveState, type SimState } from "./state.js";
 
-const port = Number(process.env.PORT ?? 9100);
-const targetUrl = process.env.TARGET_URL ?? "http://mock-api:4010/api/v1/meter-readings";
-const deviceToken = process.env.METER_DEVICE_TOKEN ?? "dev-device-token";
-let readingsPerSec = Number(process.env.READINGS_PER_SEC ?? 1);
+const SAVE_EVERY_MS = 2000;
+const SUMMARY_EVERY_MS = 10_000;
 
-const registry = new Registry();
-collectDefaultMetrics({ register: registry });
-const sent = new Counter({ name: "meter_sim_sent_total", help: "Unique readings generated", labelNames: ["region"], registers: [registry] });
-const acked = new Counter({ name: "meter_sim_acked_total", help: "Acks received", labelNames: ["region", "result"], registers: [registry] });
-const retries = new Counter({ name: "meter_sim_retries_total", help: "Retries with the same key", labelNames: ["region"], registers: [registry] });
-const rate = new Gauge({ name: "meter_sim_rate", help: "Configured readings per second", registers: [registry] });
-rate.set(readingsPerSec);
-void retries; // wired in zone B's retry logic
+const config = loadConfig();
+const app = Fastify({ logger: true });
+// Health checks and scrapes hit every few seconds; logging each one would bury real events.
+const quietRoute = { logLevel: "warn" } as const;
+const metrics = createMetrics();
 
-let seq = 0;
+let persist = true;
+let saved: SimState | undefined;
+try {
+  saved = await loadState(config.statePath);
+} catch (err) {
+  // A corrupt state file must not stop the meters; start fresh and say so.
+  app.log.error({ err, path: config.statePath }, "could not read simulator state; starting from a fresh clock");
+}
+const sim = new Simulator(config, metrics, app.log, saved);
 
-async function sendOne(): Promise<void> {
-  const region = "muntenia";
-  const meterId = "RO-MT-000001";
-  const periodStart = new Date(Math.floor(Date.now() / 900_000) * 900_000).toISOString();
-  const reading = {
-    meterId,
-    region,
-    county: "Prahova",
-    periodStart,
-    seq: seq++,
-    intervals: [{ ts: periodStart, kwh: Number((Math.random() * 0.5).toFixed(3)), voltage: 230 }],
-  };
-  sent.inc({ region });
+async function save(): Promise<void> {
+  if (!persist) return;
   try {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${deviceToken}`,
-        "idempotency-key": `${meterId}:${periodStart}:${reading.seq}`,
-        // Prism returns the lowest 2xx (200 = duplicate) unless asked; the real API ignores this.
-        ...(targetUrl.includes("mock-api") ? { prefer: "code=201" } : {}),
-      },
-      body: JSON.stringify(reading),
-    });
-    if (res.ok) acked.inc({ region, result: res.status === 200 ? "duplicate" : "accepted" });
-  } catch {
-    // Target not up yet; zone B adds retry with backoff and the same key.
+    await saveState(config.statePath, sim.snapshot());
+  } catch (err) {
+    persist = false;
+    app.log.warn({ err, path: config.statePath }, "cannot persist simulator state; restarts will start a fresh clock");
   }
 }
 
-let timer: NodeJS.Timeout | undefined;
-function schedule(): void {
-  if (timer) clearInterval(timer);
-  if (readingsPerSec > 0) timer = setInterval(() => void sendOne(), 1000 / readingsPerSec);
+app.get("/health", quietRoute, async () => ({
+  status: "up",
+  service: "meter-simulator",
+  version: "0.2.0",
+  ...sim.rate(),
+  meters: config.meterCount,
+  simulatedTime: sim.simulatedTime(),
+  pending: sim.sender.pendingCount(),
+  target: config.targetUrl,
+}));
+
+app.get("/metrics", quietRoute, async (_req, reply) => reply.type(metrics.registry.contentType).send(await metrics.registry.metrics()));
+
+app.get("/rate", async () => sim.rate());
+
+app.post<{ Body: { readingsPerSec?: number; profile?: Profile } }>(
+  "/rate",
+  {
+    schema: {
+      body: {
+        type: "object",
+        minProperties: 1,
+        additionalProperties: false,
+        properties: {
+          readingsPerSec: { type: "number", minimum: 0, maximum: MAX_RATE },
+          profile: { type: "string", enum: ["normal", "peak"] },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const change: { readingsPerSec?: number; profile?: Profile } = {};
+    if (req.body.readingsPerSec !== undefined) change.readingsPerSec = req.body.readingsPerSec;
+    if (req.body.profile !== undefined) change.profile = req.body.profile;
+    return sim.setRate(change);
+  },
+);
+
+await app.listen({ host: "0.0.0.0", port: config.port });
+sim.start();
+app.log.info({ ...sim.rate(), meters: config.meterCount, target: config.targetUrl, simulatedTime: sim.simulatedTime() }, "meters started");
+
+const saveTimer = setInterval(() => void save(), SAVE_EVERY_MS);
+const summaryTimer = setInterval(() => {
+  const { sender } = sim;
+  if (sender.failures === 0 && sender.rejected === 0) return;
+  app.log.warn(
+    { failures: sender.failures, rejected: sender.rejected, lastError: sender.lastError, pending: sender.pendingCount() },
+    "target errors in the last 10s; retrying with the same Idempotency-Key",
+  );
+  sender.failures = 0;
+  sender.rejected = 0;
+}, SUMMARY_EVERY_MS);
+
+// docker stop sends SIGTERM: stop generating, let in-flight requests settle, then save what
+// is still unacked so the next start resends it under the same keys.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info({ signal }, "stopping meters");
+  sim.stopGenerating();
+  clearInterval(saveTimer);
+  clearInterval(summaryTimer);
+  await sim.sender.stop(3000);
+  await save();
+  await app.close();
+  process.exit(0);
 }
-
-const app = Fastify({ logger: true });
-app.get("/health", async () => ({ status: "up", service: "meter-simulator", version: "0.1.0", readingsPerSec }));
-app.get("/metrics", async (_req, reply) => reply.type(registry.contentType).send(await registry.metrics()));
-app.post<{ Body: { readingsPerSec: number } }>("/rate", async (req) => {
-  readingsPerSec = Math.max(0, Number(req.body.readingsPerSec));
-  rate.set(readingsPerSec);
-  schedule();
-  return { readingsPerSec };
-});
-
-await app.listen({ host: "0.0.0.0", port });
-schedule();
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));

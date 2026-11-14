@@ -7,6 +7,9 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     jsonData:
+      # Matches Prometheus' scrape_interval, so $__rate_interval is 20s instead of the
+      # default 60s and a rate change shows on the dashboard within seconds.
+      timeInterval: 5s
       exemplarTraceIdDestinations:
         - name: trace_id
           datasourceUid: tempo

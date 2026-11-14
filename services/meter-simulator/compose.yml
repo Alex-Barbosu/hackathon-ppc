@@ -1,12 +1,19 @@
-# Zone B. Points at the mock API in the base; switch TARGET_URL to
-# http://filegrid-api:8080/api/v1/meter-readings once zone A ships ingest.
+# Zone B. Targets the mock API until zone A ships ingest; then set in .env:
+#   METER_TARGET_URL=http://filegrid-api:8080/api/v1/meter-readings
+# Rate changes live without a restart: POST http://meter-simulator:9100/rate (internal only).
 services:
   meter-simulator:
     build: .
     environment:
-      TARGET_URL: ${METER_TARGET_URL:-http://mock-api:4010/api/v1/meter-readings}
-      READINGS_PER_SEC: ${METER_READINGS_PER_SEC:-1}
+      METER_TARGET_URL: ${METER_TARGET_URL:-http://mock-api:4010/api/v1/meter-readings}
       METER_DEVICE_TOKEN: ${METER_DEVICE_TOKEN:?run make up to generate .env}
+      METER_COUNT: ${METER_COUNT:-500}
+      READINGS_PER_SEC: ${METER_READINGS_PER_SEC:-1}
+      METER_PROFILE: ${METER_PROFILE:-normal}
+    volumes:
+      # Clock and unacked readings survive restarts, so a rebuild never re-reports a period
+      # under a new key (see docs/b.md, "Meter simulator").
+      - meter-sim-data:/data
     networks: [app]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:9100/health"]
@@ -14,3 +21,5 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+volumes:
+  meter-sim-data: {}
