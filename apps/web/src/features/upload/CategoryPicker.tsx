@@ -1,9 +1,13 @@
+import { TEX_CLASS, type TextureName } from "../../components/Texture";
 import { UPLOAD_CATEGORIES, type UploadCategory } from "../../lib/domain";
 
 interface CategoryPickerProps {
   value: UploadCategory;
   onChange: (value: UploadCategory) => void;
 }
+
+// Each category gets its own landscape, like Origin's image cards, so the choice reads at a glance.
+const TEX: Record<UploadCategory, TextureName> = { outage: "amber", document: "sky", video: "forest" };
 
 export function CategoryPicker({ value, onChange }: CategoryPickerProps) {
   return (
@@ -17,12 +21,17 @@ export function CategoryPicker({ value, onChange }: CategoryPickerProps) {
             role="radio"
             aria-checked={active}
             onClick={() => onChange(c.id)}
-            className={`rounded-xl border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
-              active ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-accent"
+            className={`group flex flex-col overflow-hidden rounded-widget border-[0.8px] bg-panel text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+              active ? "border-white" : "border-line hover:border-white/30"
             }`}
           >
-            <p className="font-medium">{c.label}</p>
-            <p className="mt-1 text-[13px] text-muted">{c.hint}</p>
+            <span className={`flex h-20 w-full shrink-0 items-end p-3 ${TEX_CLASS[TEX[c.id]]}`}>
+              <span className={`label rounded-md px-2 py-1 ${active ? "bg-white text-black" : "bg-black/45 text-white"}`}>{active ? "Selected" : c.id}</span>
+            </span>
+            <span className="block p-4">
+              <span className="block text-base font-normal">{c.label}</span>
+              <span className="mt-1 block text-[13px] text-faint">{c.hint}</span>
+            </span>
           </button>
         );
       })}

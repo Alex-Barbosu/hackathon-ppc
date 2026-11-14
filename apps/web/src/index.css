@@ -1,27 +1,35 @@
 @import "tailwindcss";
 
-/* Design tokens (zone C). One restrained accent; warm neutral surfaces. */
+/* Origin-style dark system: one near-black ground, white as the only accent,
+   colour reserved for status so it always means something. */
 @theme {
-  --font-display: "Fraunces", ui-serif, Georgia, serif;
-  --font-sans: "Instrument Sans", ui-sans-serif, sans-serif;
+  --font-display: "Newsreader", ui-serif, Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
 
-  --color-canvas: #f6f3ee;
-  --color-surface: #fffdf9;
-  --color-ink: #1d1b18;
-  --color-muted: #6e675d;
-  --color-line: #e6dfd4;
-  --color-accent: #1f5c57;
-  --color-accent-soft: #e3eeec;
-  --color-good: #2f7d4f;
-  --color-warn: #b7791f;
-  --color-bad: #b4413a;
+  --color-canvas: #050505;
+  --color-surface: rgb(255 255 255 / 0.04);
+  --color-panel: #121212;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-strong: rgb(255 255 255 / 0.16);
+  --color-ink: #fafafa;
+  --color-muted: rgb(255 255 255 / 0.6);
+  --color-faint: rgb(255 255 255 / 0.5);
+  --color-accent: #ffffff;
+  --color-accent-ink: #000000;
+  --color-accent-soft: rgb(255 255 255 / 0.14);
+  --color-good: #4ade80;
+  --color-good-soft: rgb(46 204 113 / 0.12);
+  --color-warn: #fbbf24;
+  --color-warn-soft: rgb(251 191 36 / 0.12);
+  --color-bad: #f87171;
+  --color-bad-soft: rgb(239 68 68 / 0.12);
+  --color-info: #60a5fa;
+  --color-chart: #3b9ee8;
 
-  --radius-card: 18px;
-
-  /* Glass is reserved for floating layers (chaos dock, toasts, timeline drawer). */
-  --color-glass: rgb(255 253 249 / 0.78);
-  --color-glass-line: rgb(255 255 255 / 0.7);
-  --shadow-float: 0 12px 40px -12px rgb(29 27 24 / 0.25);
+  --radius-card: 24px;
+  --radius-widget: 16px;
+  --tracking-label: 0.25px;
 }
 
 @layer base {
@@ -29,17 +37,38 @@
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    font-weight: 300;
     -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
   }
+  h1, h2, h3 { font-weight: 300; }
+  ::selection { background: rgb(255 255 255 / 0.2); }
+  input[type="range"] { accent-color: #ffffff; }
+  option { background: var(--color-panel); color: var(--color-ink); }
 }
 
-@utility glass {
-  background: var(--color-glass);
-  border: 1px solid var(--color-glass-line);
-  box-shadow: var(--shadow-float);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+/* Roboto Mono capitals: Origin's voice for labels, nav and buttons. */
+@utility label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-weight: 400;
 }
+
+/* Opaque panel instead of glass: floating controls sit over live charts, and blur hurt legibility. */
+@utility glass {
+  background: var(--color-panel);
+  border: 0.8px solid var(--color-line-strong);
+  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.8);
+}
+
+/* Procedural textures we generated ourselves (public/textures), standing in for photography. */
+@utility tex-sky { background: #195f97 url("/textures/sky.webp") center / cover no-repeat; }
+@utility tex-field { background: #2a4d1c url("/textures/field.webp") center / cover no-repeat; }
+@utility tex-amber { background: #8a4a14 url("/textures/amber.webp") center / cover no-repeat; }
+@utility tex-forest { background: #1b3320 url("/textures/forest.webp") center / cover no-repeat; }
 
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }

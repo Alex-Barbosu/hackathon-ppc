@@ -5,7 +5,7 @@ import { useFilters } from "./useFileSearch";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1.5 block text-[13px] text-muted">{label}</span>
+      <span className="label mb-2 block text-faint">{label}</span>
       {children}
     </label>
   );

@@ -9,7 +9,7 @@ export function RecordingLine({ recording }: { recording: ComtradeRecording | un
   if (!line) return null;
   const note = clockNote(recording.clock);
   return (
-    <p className="mt-1 text-[13px] text-ink/80">
+    <p className="mt-1 text-[13px] text-white/80">
       {line}
       {note && <span className="text-muted"> · {note}</span>}
     </p>

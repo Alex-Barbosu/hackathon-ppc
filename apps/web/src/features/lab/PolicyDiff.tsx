@@ -11,18 +11,18 @@ export function PolicyDiff({ plan, problems, saving, onConfirm, onCancel }: {
   const blocked = problems.length > 0;
   return (
     <div className="space-y-4 rounded-card border border-line bg-surface p-6" role="region" aria-label="Policy change preview">
-      <h3 className="font-display text-lg">{blocked ? "This change cannot be applied" : "This will change the policy"}</h3>
+      <h3 className="font-display text-[28px] leading-[1.15] text-white/80">{blocked ? "This change cannot be applied" : "This will change the policy"}</h3>
       {blocked && (
-        <ul role="alert" className="space-y-2 rounded-xl border border-bad/40 bg-bad/5 p-4 text-sm">
+        <ul role="alert" className="space-y-2 rounded-widget border-[0.8px] border-bad/40 bg-bad-soft p-4 text-sm">
           {problems.map((p) => <li key={p.message}>{p.message}</li>)}
         </ul>
       )}
       <ul className="space-y-3">
         {plan.lines.map((l) => (
-          <li key={l.category} className="border-l-2 border-accent/40 pl-3">
+          <li key={l.category} className="border-l-[1.5px] border-white/30 pl-3">
             <p className="text-sm tabular-nums">
               <span className="font-medium">{LABEL[l.category] ?? l.category}:</span> {STORAGE_NAME[l.from]} → {STORAGE_NAME[l.to]}
-              <span className={l.changed ? "ml-2 text-accent" : "ml-2 text-muted"}>{l.changed ? "changes" : "(no change)"}</span>
+              <span className={l.changed ? "ml-2 text-good" : "ml-2 text-muted"}>{l.changed ? "changes" : "(no change)"}</span>
             </p>
             <p className="mt-0.5 text-[13px] text-muted">{l.reason}</p>
             {l.warning && <p className="mt-0.5 text-[13px] text-warn">{l.warning}</p>}

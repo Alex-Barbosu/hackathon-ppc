@@ -31,7 +31,7 @@ export function NetworkControls({ locked }: { locked: boolean }) {
       <div role="group" aria-label="Network target" className="flex gap-1">
         {TARGETS.map((t) => (
           <button key={t} type="button" aria-pressed={t === target} onClick={() => setTarget(t)}
-            className={`rounded-xl px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-accent ${t === target ? "bg-accent-soft font-medium text-accent" : "text-muted hover:text-ink"}`}>
+            className={`label rounded-lg px-3 py-2 focus-visible:outline-2 focus-visible:outline-accent ${t === target ? "bg-accent-soft text-ink" : "bg-surface text-muted hover:text-ink"}`}>
             {t}
           </button>
         ))}
