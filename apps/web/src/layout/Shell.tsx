@@ -1,4 +1,7 @@
-import { Link, Outlet } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { Link, Outlet, useNavigate } from "@tanstack/react-router";
+import { useSession } from "../state/session";
+import { UserMenu } from "./UserMenu";
 
 const NAV = [
   { to: "/", label: "Upload" },
@@ -8,10 +11,20 @@ const NAV = [
 ] as const;
 
 export function Shell() {
+  const signedIn = useSession((s) => s.session !== null);
+  const navigate = useNavigate();
+  // The API signs us out on a 401; send the user to Login instead of leaving a dead page.
+  useEffect(() => {
+    if (!signedIn) void navigate({ to: "/login" });
+  }, [signedIn, navigate]);
+
   return (
     <div className="mx-auto max-w-6xl px-4 pb-24 sm:px-8">
       <header className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
-        <p className="font-display text-xl font-semibold">FileGrid</p>
+        <div className="flex items-center justify-between gap-4 sm:contents">
+          <p className="font-display text-xl font-semibold">FileGrid</p>
+          <div className="sm:order-3"><UserMenu /></div>
+        </div>
         <nav aria-label="Main" className="-mx-1 flex gap-1 overflow-x-auto">
           {NAV.map((n) => (
             <Link
