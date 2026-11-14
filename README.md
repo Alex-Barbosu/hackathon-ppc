@@ -55,9 +55,12 @@ about 10 s. `make up` only returns once FileGrid itself reaches PostgreSQL, S3 a
 
 | Command | What it shows |
 | --- | --- |
-| `make demo` | The storm story, step by step with a pause before each: baseline → outage storm ×10 (meter p95 stays flat) → stop S3 (outage falls back to the database, `StorageDown` fires) → bad link on the slow lane → corrupt a file (download refused with 422, `IntegrityFailure` fires) → reset. Ctrl-C at any point undoes the chaos. |
+| `make demo` | The storm story, step by step with a pause before each: baseline → outage storm ×10 (meter p95 stays flat) → stop S3 (outage falls back to the database, `StorageDown` fires), start it again and wait with a countdown until FileGrid sees it (about 30–50 s) → bad link on the slow lane → corrupt a file (download refused with 422, `IntegrityFailure` fires) → reset. Ctrl-C at any point undoes the chaos. |
 | `make demo-scale` | 3 API replicas, a k6 outage storm with one replica taken out halfway (every upload still stored), a 256 MB drone video over a lossy link (resumed, byte-identical), back to 1 replica. |
 | `make fresh-test` | The judges' path: clones the repo into a temp dir, runs `make up` from nothing, checks every route, login, one file per category byte-identical, closed ports, alerts quiet; then removes it. Run it before the deadline. `ARGS="--stop-running"` if a stack is already on port 443 (it is restarted afterwards). |
+
+| `make b-trace` | One upload traced gateway → API → storage in Tempo, its log line in Loki, and a Grafana link to open it. |
+| `make b-alert-check` | `StorageDown`, `MeterReadingLossRisk` and `IntegrityFailure` each fire, reach the narrator and resolve (about 12 min). |
 
 `DEMO_AUTO=5 make demo` runs a demo unattended with 5 s pauses.
 
@@ -112,8 +115,8 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | Area | Requirement | Proof | Status |
 | --- | --- | --- | --- |
 | Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *How long saves and downloads take* and *How much work, and how much of it fails* rows (matrix table + time series) | dashboard ✅, data pending (A) |
-| Observability | One operation traceable request → storage | Simulator sends a W3C `traceparent` (one trace per reading, kept across retries); Tempo view in Grafana | partial, pending (A) |
-| Observability | Alert when a business guarantee is at risk | `POST /chaos/storages/db/stop`: `MeterReadingLossRisk` reaches the narrator in about 80 s, then `StorageDown{storage="db"}`; both resolve after `start`. `POST /chaos/corrupt` + download: `IntegrityFailure` in about 10 s. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ (narration pending, C) |
+| Observability | One operation traceable request → storage | `make b-trace`: uploads one outage record and checks its trace in Tempo, `caddy /api` → `http post /api/v1/files` → `policy.route` → `storage.write`, plus its log line in Loki; it prints a Grafana link to that trace. Browse all such traces in [Grafana Explore → Tempo](https://localhost/grafana/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7Bresource.service.name%3D%5C%22caddy%5C%22%7D%20%26%26%20%7Bname%3D%5C%22storage.write%5C%22%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-1h%22%2C%22to%22%3A%22now%22%7D%7D%7D). On Overview's p50/p95/p99 charts, a dot is one sampled request: click it → *Query with Tempo* | ✅ |
+| Observability | Alert when a business guarantee is at risk | `make b-alert-check` (about 12 min): stops S3 (`StorageDown`), stops the database (`MeterReadingLossRisk`), corrupts a document (`IntegrityFailure`); each fires, reaches the narrator, clears and sends a resolved notice. Last run: firing after 42 s, 70 s and 9 s; delivered about 10 s later. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ |
 | Scalability | 10x spike in one category does not degrade others | `make b-load S=storm-outage` (outage ×10, 5 MB each, while documents keep their normal rate; k6 fails the run if documents slow down) or `POST /chaos/storm`; Overview → *Meter save time (p95)* and the *Storm* row stays flat | ✅ (queue-depth panel pending, A) |
 | Scalability | Scale by adding instances | `make demo-scale`: 3 replicas share the load (Overview → *Work per FileGrid instance (scale-out)*); one taken out halfway through a storm, every upload still stored | ✅ |
 | Scalability | Files > 1 GB with flat memory | `make b-load S=video-lossy VIDEO_MB=1100 LOSS_PCT=0 LATENCY_MS=0 JITTER_MS=0 BANDWIDTH_KBPS=0`: 1.1 GB uploaded and downloaded byte-identical; API memory stays far below the file size (`docker stats`) | ✅ |
