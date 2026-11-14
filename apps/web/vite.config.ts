@@ -16,8 +16,9 @@ export default defineConfig({
     proxy: {
       "/api": { target, changeOrigin: true, secure: false },
       "/grafana": { target, changeOrigin: true, secure: false },
-      "/chaos": { target, changeOrigin: true, secure: false },
-      "/insights": { target, changeOrigin: true, secure: false },
+      // Trailing slash: "/insights" and "/chaos" are also pages of this app, only "/insights/..." is the API.
+      "^/chaos/": { target, changeOrigin: true, secure: false },
+      "^/insights/": { target, changeOrigin: true, secure: false },
       "/mock": { target, changeOrigin: true, secure: false },
     },
   },

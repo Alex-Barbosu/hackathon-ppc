@@ -846,6 +846,18 @@ export interface components {
             probableCause?: string;
             /** @example Restart S3; spool will drain automatically */
             nextStep?: string;
+            /** @enum {string} */
+            severity?: "warning" | "critical";
+            /**
+             * @description The alert's own summary annotation
+             * @example S3 storage is down
+             */
+            summary?: string;
+            /**
+             * @description Two plain-language sentences from the narrator, written from metrics only (never file names,
+             *     contents or ids). Absent until written, and absent when the AI is unavailable; show `summary` then.
+             */
+            narration?: string;
         };
         Anomaly: {
             /** @example RO-DB-004512 */
