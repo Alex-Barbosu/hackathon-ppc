@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FileGrid
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Contract v0 for every HTTP surface behind the Caddy gateway.
     Paths are absolute (they include their service prefix) so the Prism mock
@@ -171,6 +171,18 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FileMeta" }
+        "404": { $ref: "#/components/responses/Error" }
+
+    delete:
+      operationId: deleteFile
+      tags: [files]
+      summary: Delete a file and its stored bytes (admin only, audited)
+      description: |
+        Used by Storage Lab to remove its benchmark samples. Removes the object from
+        whichever storage holds it, then the files row. Documents get an audit_log entry.
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
   /api/v1/files/{id}/content:
@@ -578,6 +590,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StorageLabRun" }
 
+  /insights/storage-lab/runs/latest:
+    get:
+      operationId: getLatestStorageLabRun
+      tags: [storage-lab]
+      summary: The most recent run, so the page shows results without knowing a run id
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorageLabRun" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /insights/storage-lab/runs/{runId}:
     get:
       operationId: getStorageLabRun
@@ -923,18 +948,41 @@ components:
         outages: { type: integer, example: 14 }
         totalMinutes: { type: number, example: 412 }
 
-    StorageLabCell:
+    StorageLabLatency:
       type: object
-      required: [category, storage, samples]
+      required: [p50Ms, p95Ms, p99Ms]
       properties:
-        category: { $ref: "#/components/schemas/Category" }
-        storage: { $ref: "#/components/schemas/Storage" }
-        samples: { type: integer }
         p50Ms: { type: number }
         p95Ms: { type: number }
         p99Ms: { type: number }
-        throughputMBps: { type: number }
+
+    StorageLabCell:
+      type: object
+      required: [category, storage, samples, status, completed, sizeBytes, method, errors, errorSamples, integrityOk]
+      properties:
+        category: { $ref: "#/components/schemas/Category" }
+        storage: { $ref: "#/components/schemas/Storage" }
+        status: { type: string, enum: [pending, running, done] }
+        samples: { type: integer }
+        completed: { type: integer }
+        sizeBytes: { type: integer }
+        method: { type: string, enum: [multipart, tus] }
+        write: { $ref: "#/components/schemas/StorageLabLatency" }
+        read: { $ref: "#/components/schemas/StorageLabLatency" }
+        throughputMBps: { type: number, description: Write throughput }
+        readMBps: { type: number }
         errorRate: { type: number }
+        errors: { type: integer }
+        errorSamples:
+          type: array
+          description: Error codes only (e.g. TOO_LARGE), never file names or contents
+          items: { type: string }
+        integrityOk:
+          type: [boolean, "null"]
+          description: Every downloaded sample matched its SHA-256; null until a sample was read back
+        p50Ms: { type: number, deprecated: true, description: Use write.p50Ms }
+        p95Ms: { type: number, deprecated: true, description: Use write.p95Ms }
+        p99Ms: { type: number, deprecated: true, description: Use write.p99Ms }
 
     StorageLabRun:
       type: object
@@ -947,14 +995,28 @@ components:
         cells:
           type: array
           items: { $ref: "#/components/schemas/StorageLabCell" }
+        samplesPerCell: { type: integer }
+        error: { type: string }
         recommendation:
           type: array
           items:
             type: object
+            required: [category, storage, reason]
             properties:
               category: { $ref: "#/components/schemas/Category" }
               storage: { $ref: "#/components/schemas/Storage" }
-              reason: { type: string }
+              reason: { type: string, description: One-line summary }
+              reasons: { type: array, items: { type: string } }
+              evidence:
+                type: array
+                description: The numbers the reasons cite, shown as source chips
+                items:
+                  type: object
+                  required: [label, value]
+                  properties:
+                    label: { type: string }
+                    value: { type: string }
+              benchmarked: { type: boolean, description: "false for meter (simulator-driven, not benchmarked)" }
 
     Error:
       type: object
