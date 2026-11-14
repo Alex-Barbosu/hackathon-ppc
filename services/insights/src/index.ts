@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import pg from "pg";
 import { Registry, collectDefaultMetrics, Counter } from "prom-client";
 import { migrate } from "./migrate.js";
+import { storageLabRoutes } from "./storageLab/routes.js";
+import { RunStore } from "./storageLab/store.js";
 
 const port = Number(process.env.PORT ?? 8070);
 const registry = new Registry();
@@ -38,9 +40,13 @@ app.post<{ Body: AlertmanagerWebhook }>("/insights/alerts", async (req, reply) =
   return reply.code(202).send();
 });
 
+const labStore = new RunStore(pool);
+storageLabRoutes(app, labStore, process.env.FILEGRID_API_URL ?? "http://filegrid-api:8080", process.env.JWT_SECRET ?? "");
+
 try {
   const applied = await migrate(pool, new URL("../migrations", import.meta.url).pathname);
   app.log.info({ applied }, "insights migrations done");
+  await labStore.failStale();
 } catch (err) {
   // Keep serving health so the stack still comes up; the error is visible in logs.
   app.log.error({ err }, "insights migrations failed");
