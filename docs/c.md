@@ -50,3 +50,27 @@ Zone notes, decisions and demo evidence go here. The agent rules are in this zon
   the UI falls back to outage write rate for the hero chart.
 - **Zone B:** a local `.env` generated earlier still has `METER_TARGET_URL=http://mock-api:4010/...`, so the
   simulator never reached the real API. `.env.example` is correct; `make up` does not repair an existing `.env`.
+
+## Storage Lab (round 3)
+
+- insights: `V301__storage_lab.sql` (`insights.storage_lab_runs`), `src/storageLab/*`. `POST /insights/storage-lab/runs`
+  (admin JWT required, 202), `GET .../runs/latest`, `GET .../runs/{id}`. The run mints a 5-minute admin JWT per call
+  (same claims as zone A's `JwtService`) and never logs it. Samples are streamed, so a 100 MB video sample is not buffered.
+- Method: outage 5 MB, document 2 MB, video 100 MB (at most 3 samples). Multipart with `X-FileGrid-Force-Storage`, except
+  video on S3, which goes through tus. Every sample is downloaded and its SHA-256 compared. A receipt that names a
+  different storage than the one forced counts as an error, so a silent fallback never credits a storage with another's speed.
+- Recommendation (`recommend.ts`): candidates with 0 errors and verified integrity are scored
+  0.4 write p95 + 0.2 read p95 + 0.4 throughput, each relative to the best candidate, plus a 0.25 bonus for the storage with a
+  fixed fit (documents: FTPS audit trail, video: S3 multipart, meters: PostgreSQL de-duplication). Each reason cites the numbers.
+- Evidence (14 Nov, real stack, samplesPerCell=5, about 40 s): full 3x3 matrix. S3 won outage (write p95 ~160 ms vs 250 ms db),
+  documents and video. FTPS lost documents despite its fit bonus (write p95 ~370 ms, 6.9 MB/s vs S3 80 ms, 27.5 MB/s).
+- Benchmark files stay in the Library (description "storage-lab benchmark"); there is no delete endpoint.
+
+### Requests to other zones
+- **Zone A:** `PUT /api/v1/policy` does not exist, so "Apply policy" stays disabled. tus ignores `X-FileGrid-Force-Storage`
+  (S3 only), and multipart caps at 64 MB, so video on PostgreSQL and FTPS cannot be measured at 100 MB (both recorded as
+  `413 TOO_LARGE`). A delete endpoint (admin) would let the Lab clean up after itself.
+- **Contract proposal** (needs all three approvals): extend `StorageLabCell` with `write`/`read` latency objects,
+  `readMBps`, `errors`, `errorSamples`, `integrityOk`, `status`, `completed`, `sizeBytes`, `method`; extend the recommendation
+  with `reasons[]`, `evidence[]` (label/value), `benchmarked`; add `GET /insights/storage-lab/runs/latest`. The web uses
+  local types until then.

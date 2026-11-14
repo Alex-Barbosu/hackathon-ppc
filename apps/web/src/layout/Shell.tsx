@@ -7,6 +7,7 @@ const NAV = [
   { to: "/", label: "Upload" },
   { to: "/library", label: "Library" },
   { to: "/operations", label: "Operations" },
+  { to: "/lab", label: "Storage Lab" },
 ] as const;
 
 export function Shell() {
