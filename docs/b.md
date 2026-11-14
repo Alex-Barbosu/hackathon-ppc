@@ -197,6 +197,46 @@ Metrics: `chaos_actions_total{action,result}`, `chaos_storm_uploads_total{catego
   outage p95 0.02 s, **meter p95 flat at 0.01 s**. Ended on time. Meter storm ×10: 1 → 10/s
   and back to 1/s at the end.
 
+## Alert rules (`infra/prometheus/rules/filegrid.yml`)
+
+One rule per alert in `contracts/alerts.md`. Each carries `severity`, `category` and
+`guarantee`, plus a `summary` and `description` the narrator can read out.
+`infra/prometheus/tests/filegrid.test.yml` runs them with `promtool test rules` against
+synthetic series, covering both firing and look-alikes that must stay quiet
+(`make b-rules`, also a CI job).
+
+| Alert | Fires when | for | Signal today |
+| --- | --- | --- | --- |
+| `MeterReadingLossRisk` | sent − acked over 2 min > 50, or meter readings in the spool | 1m | ✅ simulator; spool pending (A) |
+| `MeterIngestLatencyHigh` | meter write p95 > 0.5 s | 2m | ✅ |
+| `OutageAvailabilityDegraded` | outage write p95 > 2 s, or > 1 % errors | 2m | ✅ |
+| `DocumentProtectionFailure` | unencrypted document write, or audit-chain failure | — | ❌ needs 2 new metrics (proposal below) |
+| `VideoTransferStalling` | > 5 tus resumes for video in 10 min | — | ✅ proxy (`filegrid_upload_resumes_total`); a stall gauge is proposed below |
+| `StorageDown` | `filegrid_storage_up == 0`, or every write to a storage failing with none succeeding | 30s | ✅ via traffic; gauge pending (A) |
+| `IntegrityFailure` | integrity failures increased in 5 min | — | ✅ |
+| `ServiceDown` (extra) | a scrape target is down | 30s | ✅ |
+
+Decisions:
+- **StorageDown has a traffic-based branch.** zone A does not emit `filegrid_storage_up`
+  yet. "Writes to this storage fail and none succeed" catches a dead storage today, and
+  ignores failed reads (a corrupted file on a healthy storage). It keeps working once the
+  gauge exists.
+- **IntegrityFailure catches the first failure.** Micrometer creates the counter at the
+  first failure with value 1, so `increase()` reads 0 and the base rule never fired for a
+  storage's first corruption. The rule now also fires on a series that did not exist 5
+  minutes ago.
+- **MeterReadingLossRisk waits 1 minute.** A burst of slow acks below 50 readings does not
+  page; a real outage at 10/s crosses it within seconds and fires after the `for`.
+
+Evidence (14 Nov, live, chaos-control from #17):
+- `stop db` at 10 readings/s: `MeterReadingLossRisk` pending after 10 s, firing at
+  72 s, **received by insights at 82 s** (acceptance: < 2 min). `StorageDown{storage="db"}`
+  and `MeterIngestLatencyHigh` followed. After `start db`, the simulator drained to 0
+  pending and every alert resolved within 71 s. insights counted 3 firing and 3 resolved
+  notifications.
+- Corrupt a document on ftp + download (422): `IntegrityFailure{category="document",
+  storage="ftp"}` firing after 10 s and delivered to insights.
+
 ## Requests to other zones
 
 - **Zone A:** `meter_intervals` stays empty; `meter_readings` is filled. Zone C's anomaly
@@ -267,6 +307,20 @@ syntax only until filegrid-api emits them.
   +        HS256, signed with JWT_SECRET. Claims: sub (username), role (Role enum),
   +        iat, exp (required). Every /chaos route requires role admin.
   ```
+
+- **Metrics for `DocumentProtectionFailure` and `VideoTransferStalling`.** The alerts in
+  `contracts/alerts.md` need signals that `contracts/metrics.md` does not define. Proposed
+  rows for the zone A table:
+
+  ```diff
+  +| `filegrid_unencrypted_writes_total` | counter | `category`, `storage` | Writes stored without encryption although the policy says `encrypt: true`. Must stay 0. |
+  +| `filegrid_audit_chain_failures_total` | counter | — | Audit-log hash-chain verification failures. Must stay 0. |
+  +| `filegrid_upload_stalled` | gauge | `category` | Active tus uploads with no new bytes for 5 minutes. |
+  ```
+
+  The rule for the first two is already in place and tested, so it works as soon as they
+  are emitted. With the gauge, `VideoTransferStalling` would become
+  `max(filegrid_upload_stalled{category="video"}) > 0`.
 
 - None needed for this work. Cosmetic only: `MeterReadingFile.county` uses the example
   `Prahova`, which is outside the Rețele Electrice area. `Ilfov` would match `RO-MT-000123`:

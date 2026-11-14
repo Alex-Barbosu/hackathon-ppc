@@ -96,7 +96,7 @@ dashboard at https://localhost/grafana. Rows marked *pending* name the zone deli
 | --- | --- | --- | --- |
 | Observability | p50/p95/p99, throughput, error rate per category × storage | Overview → *Latency* and *Throughput and errors* rows (matrix table + time series) | dashboard ✅, data pending (A) |
 | Observability | One operation traceable request → storage | Simulator sends a W3C `traceparent` (one trace per reading, kept across retries); Tempo view in Grafana | partial, pending (A) |
-| Observability | Alert when a business guarantee is at risk | Stop a storage; alert reaches the narrator within 2 min | pending (B, C) |
+| Observability | Alert when a business guarantee is at risk | `POST /chaos/storages/db/stop`: `MeterReadingLossRisk` reaches the narrator in about 80 s, then `StorageDown{storage="db"}`; both resolve after `start`. `POST /chaos/corrupt` + download: `IntegrityFailure` in about 10 s. Rules: `infra/prometheus/rules/filegrid.yml`, tests: `make b-rules` | ✅ (narration pending, C) |
 | Scalability | 10x spike in one category does not degrade others | `POST /chaos/storm {"category":"outage","multiplier":10,"durationSec":120}`; Overview → *Meter write p95* stays flat while outage writes rise tenfold | ✅ (queue-depth panel pending, A) |
 | Scalability | Scale by adding instances | `make scale N=3`; throughput spreads over replicas | pending (A) |
 | Security | Storages unreachable from outside | `for p in 5432 8333 9333 21; do nc -z -w 2 localhost $p && echo "$p OPEN"; done` prints nothing; only Caddy (80/443) and Toxiproxy (8443) publish ports | ✅ |

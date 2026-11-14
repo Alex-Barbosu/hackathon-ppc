@@ -1,0 +1,199 @@
+# Zone B. `promtool test rules` for rules/filegrid.yml: each alert fires on the signal it
+# guards, and stays quiet on look-alikes. Run by `make b-test`.
+rule_files:
+  - ../rules/filegrid.yml
+evaluation_interval: 15s
+
+tests:
+  # Meters at 20/s; acks stop after 1 minute (API down). Then a healthy pipeline.
+  - interval: 15s
+    input_series:
+      - series: meter_sim_sent_total{region="muntenia"}
+        values: "0+300x20"
+      - series: meter_sim_acked_total{region="muntenia",result="accepted"}
+        values: "0+300x4 1200x16"
+      - series: meter_sim_sent_total{region="banat"}
+        values: "0+300x20"
+      - series: meter_sim_acked_total{region="banat",result="accepted"}
+        values: "0+300x20"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: MeterReadingLossRisk
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: MeterReadingLossRisk
+        exp_alerts:
+          - exp_labels: { severity: critical, category: meter, guarantee: meter_never_lost }
+            exp_annotations:
+              summary: "Meter readings are not being confirmed"
+              description: "Over the last 2 minutes 2400 more readings were sent than acknowledged, or meter readings are waiting in the spool. They are retried with the same Idempotency-Key, but none is billed until stored."
+
+  # Meter readings parked in the spool.
+  - interval: 15s
+    input_series:
+      - series: filegrid_spool_pending{category="meter"}
+        values: "0 0 3x10"
+      - series: filegrid_spool_pending{category="outage"}
+        values: "9x12"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MeterReadingLossRisk
+        exp_alerts:
+          - exp_labels: { severity: critical, category: meter, guarantee: meter_never_lost }
+            exp_annotations:
+              summary: "Meter readings are not being confirmed"
+              description: "Over the last 2 minutes 3 more readings were sent than acknowledged, or meter readings are waiting in the spool. They are retried with the same Idempotency-Key, but none is billed until stored."
+
+  # Meter p95 ~0.75 s (every write lands between 0.5 and 1 s); outage stays fast.
+  - interval: 15s
+    input_series:
+      - series: filegrid_op_duration_seconds_bucket{category="meter",storage="db",op="write",outcome="ok",le="0.5"}
+        values: "0x20"
+      - series: filegrid_op_duration_seconds_bucket{category="meter",storage="db",op="write",outcome="ok",le="1.0"}
+        values: "0+10x20"
+      - series: filegrid_op_duration_seconds_bucket{category="meter",storage="db",op="write",outcome="ok",le="+Inf"}
+        values: "0+10x20"
+      - series: filegrid_op_duration_seconds_bucket{category="outage",storage="s3",op="write",outcome="ok",le="0.5"}
+        values: "0+10x20"
+      - series: filegrid_op_duration_seconds_bucket{category="outage",storage="s3",op="write",outcome="ok",le="+Inf"}
+        values: "0+10x20"
+      - series: filegrid_ops_total{category="outage",storage="s3",op="write",outcome="ok"}
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MeterIngestLatencyHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, category: meter, guarantee: meter_not_degraded }
+            exp_annotations:
+              summary: "Meter ingest p95 is above 0.5 s"
+              description: "p95 write latency for meter readings is 0.97 s (limit 0.5 s) for 2 minutes."
+      - eval_time: 4m
+        alertname: OutageAvailabilityDegraded
+        exp_alerts: []
+
+  # Outage: half the writes fail (S3 down, no fallback).
+  - interval: 15s
+    input_series:
+      - series: filegrid_ops_total{category="outage",storage="s3",op="write",outcome="ok"}
+        values: "0+5x20"
+      - series: filegrid_ops_total{category="outage",storage="s3",op="write",outcome="error"}
+        values: "0+5x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OutageAvailabilityDegraded
+        exp_alerts:
+          - exp_labels: { severity: critical, category: outage, guarantee: outage_available }
+            exp_annotations:
+              summary: "Outage records are slow or failing for dispatch"
+              description: "Outage writes: p95 above 2 s or more than 1 % errors for 2 minutes (value 0.50)."
+
+  # StorageDown from the health gauge.
+  - interval: 15s
+    input_series:
+      - series: filegrid_storage_up{storage="s3",instance="api-1"}
+        values: "1 1 0x10"
+      - series: filegrid_storage_up{storage="db",instance="api-1"}
+        values: "1x12"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: StorageDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StorageDown
+        exp_alerts:
+          - exp_labels: { severity: critical, category: all, guarantee: isolation, storage: s3 }
+            exp_annotations:
+              summary: "s3 storage is down"
+              description: "filegrid_storage_up{storage=\"s3\"} == 0, or every operation on it failed, for 30 s."
+
+  # StorageDown from traffic: every s3 write fails. Failed reads on ftp (a corrupted file)
+  # and a db that both fails and succeeds must not alert.
+  - interval: 15s
+    input_series:
+      - series: filegrid_ops_total{category="outage",storage="s3",op="write",outcome="error"}
+        values: "0+3x20"
+      - series: filegrid_ops_total{category="document",storage="ftp",op="read",outcome="error"}
+        values: "0+3x20"
+      - series: filegrid_ops_total{category="document",storage="ftp",op="write",outcome="ok"}
+        values: "0+1x20"
+      - series: filegrid_ops_total{category="meter",storage="db",op="write",outcome="error"}
+        values: "0+1x20"
+      - series: filegrid_ops_total{category="meter",storage="db",op="write",outcome="ok"}
+        values: "0+50x20"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StorageDown
+        exp_alerts:
+          - exp_labels: { severity: critical, category: all, guarantee: isolation, storage: s3 }
+            exp_annotations:
+              summary: "s3 storage is down"
+              description: "filegrid_storage_up{storage=\"s3\"} == 0, or every operation on it failed, for 30 s."
+
+  # IntegrityFailure: the first failure creates the counter at 1 (increase() alone reads 0);
+  # a second storage already had failures long ago and gets one more.
+  - interval: 15s
+    input_series:
+      - series: filegrid_integrity_failures_total{category="outage",storage="s3"}
+        values: "_x24 1x20"
+      - series: filegrid_integrity_failures_total{category="document",storage="ftp"}
+        values: "2x30 3x30"
+      - series: filegrid_integrity_failures_total{category="outage",storage="db"}
+        values: "4x44"
+    alert_rule_test:
+      # The s3 series appears at 6m (25 missing samples first).
+      - eval_time: 6m15s
+        alertname: IntegrityFailure
+        exp_alerts:
+          - exp_labels: { severity: critical, guarantee: integrity, category: outage, storage: s3 }
+            exp_annotations:
+              summary: "Corrupted outage file detected in s3"
+              description: "SHA-256 mismatch on read or verify: the stored bytes no longer match what was received."
+      - eval_time: 8m
+        alertname: IntegrityFailure
+        exp_alerts:
+          - exp_labels: { severity: critical, guarantee: integrity, category: outage, storage: s3 }
+            exp_annotations:
+              summary: "Corrupted outage file detected in s3"
+              description: "SHA-256 mismatch on read or verify: the stored bytes no longer match what was received."
+          - exp_labels: { severity: critical, guarantee: integrity, category: document, storage: ftp }
+            exp_annotations:
+              summary: "Corrupted document file detected in ftp"
+              description: "SHA-256 mismatch on read or verify: the stored bytes no longer match what was received."
+      # Five minutes after the last new failure, and after the s3 series ended: quiet again.
+      - eval_time: 13m30s
+        alertname: IntegrityFailure
+        exp_alerts: []
+
+  # Video resumes: 8 in 10 minutes fires; 3 does not.
+  - interval: 1m
+    input_series:
+      - series: filegrid_upload_resumes_total{category="video"}
+        values: "0 1 2 3 4 5 6 7 8 8 8"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: VideoTransferStalling
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: VideoTransferStalling
+        exp_alerts:
+          - exp_labels: { severity: warning, category: video, guarantee: video_transfer_survives }
+            exp_annotations:
+              summary: "Video uploads keep getting interrupted"
+              description: "8 tus resumes in 10 minutes: the field link is unstable and transfers may stall."
+
+  # Document protection (proposed metrics).
+  - interval: 15s
+    input_series:
+      - series: filegrid_unencrypted_writes_total{category="document",storage="ftp"}
+        values: "0x10 1x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DocumentProtectionFailure
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: DocumentProtectionFailure
+        exp_alerts:
+          - exp_labels: { severity: critical, category: document, guarantee: personal_data_protected, storage: ftp }
+            exp_annotations:
+              summary: "Customer documents stored unencrypted or audit chain broken"
+              description: "A document was written without encryption, or the hash-chained audit log failed verification, in the last 5 minutes."

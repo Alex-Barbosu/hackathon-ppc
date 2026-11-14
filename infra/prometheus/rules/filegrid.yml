@@ -1,26 +1,116 @@
-# Zone B. One rule per alert in contracts/alerts.md. Only StorageDown and
-# IntegrityFailure are wired in the base; the rest are added in zone B's backlog.
+# Zone B. One rule per alert in contracts/alerts.md, each tied to the business guarantee it
+# protects. Labels on every rule: severity, category (or all), guarantee. Alertmanager
+# sends them to the zone C narrator (infra/alertmanager/alertmanager.yml).
+# Unit tests: infra/prometheus/tests/filegrid.test.yml (`make b-test`).
 groups:
   - name: filegrid-guarantees
     rules:
+      # Guarantee: meter readings are never lost (billing).
+      # Fires when readings sent by the meters stop being acknowledged (FileGrid down, DB
+      # down, readings rejected), or when meter readings sit in the fallback spool.
+      - alert: MeterReadingLossRisk
+        expr: |
+          (
+            sum(increase(meter_sim_sent_total[2m])) - sum(increase(meter_sim_acked_total[2m])) > 50
+          )
+          or sum(filegrid_spool_pending{category="meter"}) > 0
+        for: 1m
+        labels: { severity: critical, category: meter, guarantee: meter_never_lost }
+        annotations:
+          summary: "Meter readings are not being confirmed"
+          description: >-
+            Over the last 2 minutes {{ printf "%.0f" $value }} more readings were sent than
+            acknowledged, or meter readings are waiting in the spool. They are retried with
+            the same Idempotency-Key, but none is billed until stored.
+
+      # Guarantee: meter ingest is not degraded by load on other categories.
+      - alert: MeterIngestLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(filegrid_op_duration_seconds_bucket{category="meter", op="write"}[1m]))
+          ) > 0.5
+        for: 2m
+        labels: { severity: warning, category: meter, guarantee: meter_not_degraded }
+        annotations:
+          summary: "Meter ingest p95 is above 0.5 s"
+          description: "p95 write latency for meter readings is {{ printf \"%.2f\" $value }} s (limit 0.5 s) for 2 minutes."
+
+      # Guarantee: outage records are available to dispatch immediately.
+      - alert: OutageAvailabilityDegraded
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(filegrid_op_duration_seconds_bucket{category="outage", op="write"}[2m]))
+          ) > 2
+          or
+          (
+            sum(rate(filegrid_ops_total{category="outage", outcome="error"}[2m]))
+            / sum(rate(filegrid_ops_total{category="outage"}[2m]))
+          ) > 0.01
+        for: 2m
+        labels: { severity: critical, category: outage, guarantee: outage_available }
+        annotations:
+          summary: "Outage records are slow or failing for dispatch"
+          description: "Outage writes: p95 above 2 s or more than 1 % errors for 2 minutes (value {{ printf \"%.2f\" $value }})."
+
+      # Guarantee: personal data is protected and auditable.
+      # PENDING CONTRACT: the two metrics below are proposed in docs/b.md and not in
+      # contracts/metrics.md yet. Until zone A emits them this rule cannot fire.
+      - alert: DocumentProtectionFailure
+        expr: |
+          increase(filegrid_unencrypted_writes_total{category="document"}[5m]) > 0
+          or increase(filegrid_audit_chain_failures_total[5m]) > 0
+        labels: { severity: critical, category: document, guarantee: personal_data_protected }
+        annotations:
+          summary: "Customer documents stored unencrypted or audit chain broken"
+          description: "A document was written without encryption, or the hash-chained audit log failed verification, in the last 5 minutes."
+
+      # Guarantee: video transfers survive unstable links.
+      # Proxy until an "active uploads" gauge exists (proposed in docs/b.md): many resumes in
+      # a short window mean uploads keep breaking and may not finish.
+      - alert: VideoTransferStalling
+        expr: increase(filegrid_upload_resumes_total{category="video"}[10m]) > 5
+        labels: { severity: warning, category: video, guarantee: video_transfer_survives }
+        annotations:
+          summary: "Video uploads keep getting interrupted"
+          description: "{{ printf \"%.0f\" $value }} tus resumes in 10 minutes: the field link is unstable and transfers may stall."
+
+      # Guarantee: one storage down does not stop the others (isolation).
+      # filegrid_storage_up is the contract signal. Until zone A emits it, the second branch
+      # sees the same thing from real traffic: every write to a storage failing, none
+      # succeeding. Writes only: reads of a corrupted file fail on a healthy storage.
       - alert: StorageDown
-        expr: filegrid_storage_up == 0
+        expr: |
+          max by (storage) (filegrid_storage_up) == 0
+          or
+          (
+            sum by (storage) (rate(filegrid_ops_total{op="write", outcome="error"}[1m])) > 0
+            unless on (storage) sum by (storage) (rate(filegrid_ops_total{op="write", outcome="ok"}[1m])) > 0
+          )
         for: 30s
         labels: { severity: critical, category: all, guarantee: isolation }
         annotations:
           summary: "{{ $labels.storage }} storage is down"
-          description: "filegrid_storage_up{storage=\"{{ $labels.storage }}\"} == 0 for 30s"
+          description: "filegrid_storage_up{storage=\"{{ $labels.storage }}\"} == 0, or every operation on it failed, for 30 s."
 
+      # Guarantee: a retrieved file is identical to the stored one.
+      # The counter series is created at the first failure with value 1, so increase() alone
+      # would read 0; the second branch catches a series that did not exist 5 minutes ago.
       - alert: IntegrityFailure
-        expr: increase(filegrid_integrity_failures_total[5m]) > 0
+        expr: |
+          increase(filegrid_integrity_failures_total[5m]) > 0
+          or (filegrid_integrity_failures_total unless filegrid_integrity_failures_total offset 5m)
         labels: { severity: critical, guarantee: integrity }
         annotations:
           summary: "Corrupted {{ $labels.category }} file detected in {{ $labels.storage }}"
-          description: "SHA-256 mismatch on read or verify"
+          description: "SHA-256 mismatch on read or verify: the stored bytes no longer match what was received."
 
+  - name: filegrid-platform
+    rules:
+      # Not in the contract: a service that stops being scraped hides every alert above.
       - alert: ServiceDown
         expr: up == 0
         for: 30s
-        labels: { severity: warning, guarantee: availability }
+        labels: { severity: warning, category: all, guarantee: observability }
         annotations:
           summary: "{{ $labels.job }} is not being scraped"
+          description: "Prometheus cannot scrape {{ $labels.instance }}; alerts that depend on it are blind."
