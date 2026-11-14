@@ -24,6 +24,7 @@ public final class AccessRules {
     public static final String METER_PATH = "/api/v1/meter-readings";
     public static final String LOGIN_PATH = "/api/v1/auth/login";
     public static final String HEALTH_PATH = "/api/v1/health";
+    public static final String POLICY_PATH = "/api/v1/policy";
 
     private static final Pattern CONTENT_PATH =
             Pattern.compile("^/api/v1/files/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/content$");
@@ -42,12 +43,18 @@ public final class AccessRules {
         return m.matches() ? m.group(1) : null;
     }
 
+    /** Anything but a read of the policy routes changes the policy. */
+    private static boolean isPolicyChange(String method, String path) {
+        return path.startsWith(POLICY_PATH) && !"GET".equals(method) && !"HEAD".equals(method);
+    }
+
     public static boolean allowed(Role role, String method, String path) {
         return switch (role) {
             case ADMIN -> true;
             case METER_DEVICE -> "POST".equals(method) && METER_PATH.equals(path);
             case DOWNLOAD_LINK -> "GET".equals(method) && contentFileId(path) != null;
-            case FIELD, DISPATCH, CONNECTIONS -> !METER_PATH.equals(path);
+            // Reading the policy is for everyone logged in; changing it is admin only (the contract).
+            case FIELD, DISPATCH, CONNECTIONS -> !METER_PATH.equals(path) && !isPolicyChange(method, path);
         };
     }
 }

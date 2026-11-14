@@ -32,6 +32,7 @@ public class AuditLogService {
         this.tx = tx;
     }
 
+    /** {@code fileId} may be null for an event that is not about one file (a policy change). */
     public void append(String actor, String action, UUID fileId, Map<String, Object> details) {
         tx.executeWithoutResult(status -> {
             jdbc.query("SELECT pg_advisory_xact_lock(?)", (RowCallbackHandler) rs -> { }, LOCK_KEY);
@@ -41,12 +42,14 @@ public class AuditLogService {
             // Postgres keeps microseconds, so hash exactly what it will store.
             Instant at = Instant.now().truncatedTo(ChronoUnit.MICROS);
             long micros = at.getEpochSecond() * 1_000_000L + at.getNano() / 1_000;
-            String event = AuditChain.eventJson(micros, actor, action, fileId.toString(), details);
+            // Some events, such as a policy change, are not about one file.
+            String file = fileId == null ? null : fileId.toString();
+            String event = AuditChain.eventJson(micros, actor, action, file, details);
             String detailsJson = detailsJson(details);
 
             jdbc.update("INSERT INTO audit_log (at, actor, action, file_id, details, prev_hash, hash) "
                             + "VALUES (?,?,?,?::uuid,?::jsonb,?,?)",
-                    Timestamp.from(at), actor, action, fileId.toString(), detailsJson,
+                    Timestamp.from(at), actor, action, file, detailsJson,
                     prev, AuditChain.hash(prev, event));
         });
     }

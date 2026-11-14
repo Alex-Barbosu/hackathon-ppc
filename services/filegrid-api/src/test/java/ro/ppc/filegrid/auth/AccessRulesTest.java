@@ -37,6 +37,20 @@ class AccessRulesTest {
     }
 
     @Test
+    void everyoneLoggedInReadsThePolicyButOnlyAnAdminChangesIt() {
+        for (Role r : new Role[] {Role.FIELD, Role.DISPATCH, Role.CONNECTIONS}) {
+            assertThat(AccessRules.allowed(r, "GET", "/api/v1/policy")).isTrue();
+            assertThat(AccessRules.allowed(r, "GET", "/api/v1/policy/history")).isTrue();
+            assertThat(AccessRules.allowed(r, "PUT", "/api/v1/policy")).isFalse();
+            assertThat(AccessRules.allowed(r, "POST", "/api/v1/policy")).isFalse();
+            assertThat(AccessRules.allowed(r, "DELETE", "/api/v1/policy/history")).isFalse();
+        }
+        assertThat(AccessRules.allowed(Role.ADMIN, "PUT", "/api/v1/policy")).isTrue();
+        assertThat(AccessRules.allowed(Role.METER_DEVICE, "GET", "/api/v1/policy")).isFalse();
+        assertThat(AccessRules.allowed(Role.DOWNLOAD_LINK, "GET", "/api/v1/policy")).isFalse();
+    }
+
+    @Test
     void adminReachesEverything() {
         assertThat(AccessRules.allowed(Role.ADMIN, "POST", "/api/v1/meter-readings")).isTrue();
         assertThat(AccessRules.allowed(Role.ADMIN, "POST", "/api/v1/files")).isTrue();

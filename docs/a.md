@@ -346,3 +346,63 @@ Unit tests: 73 new (204 in all): the breaker, `StorageMonitor`, `SpoolStorage`, 
 - The spool volume is shared by replicas on one host (compose). Replicas on separate hosts would need shared storage.
 - No limit on the spool size; the spool is only checked for free space (64 MB) by its own health check.
 - No alert rule on `spool_pending` for categories other than meter; that is zone B's.
+
+## Policy hot reload and PUT /policy (branch `zone-a/policy-hot-reload`)
+
+Backlog item 8. The Storage Lab's "Apply policy" calls `PUT /api/v1/policy`; this is what it needs.
+
+### Routes (contracts/openapi.yaml, no contract change)
+
+| Route | Who | Result |
+| --- | --- | --- |
+| `GET /api/v1/policy` | any logged-in user | the policy in force, with its `version` |
+| `PUT /api/v1/policy` | **admin only** (`403` otherwise) | `200` the policy now in force; `400` with the reasons if it does not validate |
+| `GET /api/v1/policy/history` | any logged-in user | applied versions, newest first: `{version, appliedAt, appliedBy, policy}` |
+
+- The body is checked against the same schema as the file, as sent: an unknown key, a missing category, a `spool`
+  primary or a wrong type is a `400`, not silently dropped.
+- **The server numbers versions** (latest + 1). The `version` in the body is ignored, so "Apply" never fails on a stale number.
+  Applying a policy equal to the one in force records nothing and returns it.
+- The change is in force for the next request, on every replica within about 3 s. No restart.
+
+### Where the policy lives
+
+- `config/policy.yaml` is the starting point (and is mounted read-only). Every policy applied after that is a row in
+  `policy_versions`; the newest row is the policy in force. Replicas check the table every 3 s.
+- **A file edit while the API runs** is applied as a new version (`appliedBy: file`). A file that does not validate is
+  logged and ignored: a typo cannot replace a working policy. Putting the file right again applies it.
+- **After a restart the newest applied version wins over the file**, so a policy set through the API survives. A file
+  edited while the API is stopped is not picked up if a newer version exists; edit it while the API runs, or use `PUT`.
+- Several replicas: a Postgres advisory lock serialises version numbers, and a file edit seen by all of them is
+  applied once (the others find nothing left to change).
+
+### Audit
+
+Every change is an `audit_log` event `policy.update` (actor, `from`, `to`, source `api` or `file`, and a list such as
+`document.encrypt true->false`), written in the same transaction as the new version. If the event cannot be written the
+policy is not changed. Events about a policy have no file id; the chain handles that.
+
+### Proof (`make a-policy-check`, through Caddy)
+
+| Check | Result |
+| --- | --- |
+| dispatch `PUT` / no token | `403` / `401` |
+| unknown storage, unknown key, `spool` primary, body not JSON | `400`, and the policy in force is unchanged |
+| outage file before / after `PUT outage.primary=db` | goes to s3 / the very next upload goes to db, no restart, downloads identical |
+| same policy again; client sends `version: 999` | no new version; the server still numbers it next |
+| history | newest first, `appliedBy` set |
+| audit | `policy.update` events with no file id, saying `outage.primary s3->db`; chain verifies in Python |
+| edit `config/policy.yaml` while running | applied within seconds as a new version from `file` |
+| break the file | ignored, policy unchanged; putting it right applies it |
+| restart the API after a `PUT` | still has the `PUT` policy, not the older file's |
+
+`config/policy.yaml` is restored exactly by the script.
+
+Unit tests: 37 new (241 in all): `PolicyManagerTest` (first start, restart, PUT, versions, no-change, invalid, audit failure rolls
+back, other replica, file edit, broken file, retry), `PolicyWebTest` (who may do what), access rules, schema checks.
+
+### Limits
+
+- Only the policy values change at runtime. Worker pool and queue sizes do nothing yet: the per-category bulkheads (backlog item 12) are not built.
+- A policy that sends a category to a storage that is down is accepted; the circuit breaker and the fallback handle it.
+- Uploads already in flight finish under the policy they started with.
