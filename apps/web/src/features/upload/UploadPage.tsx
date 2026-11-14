@@ -2,6 +2,7 @@ import { PageHero } from "../../components/PageHero";
 import { Arrow, CARD, PrimaryButton } from "../../components/ui";
 import { CategoryPicker } from "./CategoryPicker";
 import { DropZone } from "./DropZone";
+import { HowItWorks } from "./HowItWorks";
 import { PlaceFields } from "./PlaceFields";
 import { ReceiptCard } from "./ReceiptCard";
 import { TusProgress } from "./TusProgress";
@@ -44,6 +45,7 @@ export function UploadPage() {
         </section>
         <UploadPhone file={file} receipt={receipt ?? null} pending={busy} percent={isVideo ? tus.state.percent : null} />
       </div>
+      <div className="mt-24"><HowItWorks /></div>
     </>
   );
 }

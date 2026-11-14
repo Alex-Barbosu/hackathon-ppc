@@ -5,7 +5,7 @@ import { Chip } from "../../components/ui";
 // What a receipt looks like, shown before sign-in so the promise is concrete. Labelled as an example, not live data.
 export function LoginPhone() {
   return (
-    <PhoneFrame label="Example FileGrid receipt on a phone" tilt="right">
+    <PhoneFrame label="Example FileGrid receipt on a phone" tilt="right" className="hidden [--phone-w:min(280px,calc((100dvh-150px)*0.47))] lg:block">
       <PhoneScreen
         eyebrow="Example receipt"
         title={<>Stored and <em>verified</em>.</>}

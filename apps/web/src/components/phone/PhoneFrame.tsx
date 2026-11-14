@@ -23,7 +23,7 @@ export function PhoneFrame({ children, tilt = "right", label, className = "" }: 
         animate={{ ...pose, y: 0, opacity: 1 }}
         whileHover={reduce ? undefined : { rotateY: pose.rotateY / 2, rotateX: 0, rotateZ: 0 }}
         transition={{ type: "spring", stiffness: 260, damping: 30 }}
-        className="relative mx-auto aspect-[9/19.2] w-[280px] rounded-[48px] bg-[#1a1a1a] p-[10px] shadow-[0_40px_80px_-30px_rgb(0_0_0/0.9),inset_0_0_0_1.5px_rgb(255_255_255/0.14),inset_0_0_0_4px_#0b0b0b] [transform-style:preserve-3d]"
+        className="relative mx-auto aspect-[9/19.2] w-[var(--phone-w,280px)] rounded-[48px] bg-[#1a1a1a] p-[10px] shadow-[0_40px_80px_-30px_rgb(0_0_0/0.9),inset_0_0_0_1.5px_rgb(255_255_255/0.14),inset_0_0_0_4px_#0b0b0b] [transform-style:preserve-3d]"
       >
         <span aria-hidden className="absolute top-[110px] -left-[3px] h-8 w-[3px] rounded-l bg-[#2a2a2a]" />
         <span aria-hidden className="absolute top-[156px] -left-[3px] h-14 w-[3px] rounded-l bg-[#2a2a2a]" />

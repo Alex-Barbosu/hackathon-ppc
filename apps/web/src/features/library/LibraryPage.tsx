@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { PageHero } from "../../components/PageHero";
 import { CARD, WIDGET } from "../../components/ui";
 import { FileCard } from "./FileCard";
+import { ResultsBar } from "./ResultsBar";
 import { SearchBar } from "./SearchBar";
 import { useFileSearch } from "./useFileSearch";
 
@@ -36,7 +37,7 @@ export function LibraryPage() {
         )}
         {data && data.items.length > 0 && (
           <section aria-label="Files" className={WIDGET}>
-            <p className="label px-5 pt-4 pb-3.5 text-faint">{data.total} {data.total === 1 ? "file" : "files"}</p>
+            <ResultsBar total={data.total} />
             <ul>{data.items.map((f) => <FileCard key={f.id} file={f} />)}</ul>
           </section>
         )}

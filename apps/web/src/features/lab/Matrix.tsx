@@ -1,6 +1,15 @@
 import { MatrixCell } from "./MatrixCell";
-import type { Category, LabRun, Storage } from "../../lib/domain";
+import { ExportButton } from "../../components/ExportButton";
+import type { Column } from "../../lib/csv";
+import type { Category, LabCell, LabRun, Storage } from "../../lib/domain";
 import { CATEGORY_ROWS, STORAGE_NAME, STORAGE_ORDER } from "./constants";
+
+const CELL_COLUMNS: Column<LabCell>[] = [
+  { header: "Category", value: (c) => c.category }, { header: "Storage", value: (c) => c.storage },
+  { header: "Samples", value: (c) => c.completed }, { header: "Write p95 ms", value: (c) => c.write?.p95Ms },
+  { header: "Read p95 ms", value: (c) => c.read?.p95Ms }, { header: "Write MB/s", value: (c) => c.throughputMBps },
+  { header: "Errors", value: (c) => c.errors }, { header: "Integrity ok", value: (c) => c.integrityOk },
+];
 
 interface Props { run: LabRun | null | undefined; current: Partial<Record<Category, Storage>> }
 
@@ -8,6 +17,7 @@ export function Matrix({ run, current }: Props) {
   const rec = new Map(run?.recommendation?.map((r) => [r.category, r.storage]));
   return (
     <section aria-label="Benchmark matrix" className="rounded-card border-[0.8px] border-line bg-surface p-5 sm:p-8">
+      <div className="mb-4 flex justify-end"><ExportButton name="storage-lab" rows={run?.cells} columns={CELL_COLUMNS} /></div>
       <div className="hidden grid-cols-[10rem_repeat(3,1fr)] gap-3 pb-3 lg:grid" aria-hidden>
         <span />
         {STORAGE_ORDER.map((s) => <span key={s} className="label text-faint">{STORAGE_NAME[s]}</span>)}

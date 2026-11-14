@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../../api/client";
-import { FIELD } from "../../components/ui";
+import { Select } from "../../components/select/Select";
 import { ConfirmButton } from "./ConfirmButton";
 import { useChaosAction } from "./useChaos";
 
@@ -16,11 +16,10 @@ export function CorruptControl({ locked }: { locked: boolean }) {
   const items = files.data?.items ?? [];
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium" htmlFor="corrupt-file">Corrupt a stored file</label>
-      <select id="corrupt-file" className={FIELD} value={id} disabled={locked} onChange={(e) => setId(e.target.value)}>
-        <option value="">{items.length ? "Pick a file from the Library" : "No files in the Library yet"}</option>
-        {items.map((f) => <option key={f.id} value={f.id}>{f.category} · {f.originalName ?? f.id.slice(0, 8)} · {f.storage}</option>)}
-      </select>
+      <Select label="Corrupt a stored file" value={id} disabled={locked}
+        options={[{ value: "", label: items.length ? "Pick a file from the Library" : "No files in the Library yet" },
+          ...items.map((f) => ({ value: f.id, label: f.originalName ?? f.id.slice(0, 8), hint: `${f.category} · ${f.storage}` }))]}
+        onChange={setId} />
       <ConfirmButton label="Corrupt file" confirmLabel="Confirm corrupt" disabled={locked || !id || act.isPending}
         onConfirm={() => act.mutate({ kind: "corrupt", fileId: id })} />
     </div>

@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 
-export type TextureName = "sky" | "field" | "amber" | "forest";
+export type TextureName = "sky" | "field" | "amber" | "forest" | "lines-sky" | "lines-dusk";
 
-export const TEX_CLASS: Record<TextureName, string> = { sky: "tex-sky", field: "tex-field", amber: "tex-amber", forest: "tex-forest" };
+export const TEX_CLASS: Record<TextureName, string> = { sky: "tex-sky", field: "tex-field", amber: "tex-amber", forest: "tex-forest", "lines-sky": "tex-lines-sky", "lines-dusk": "tex-lines-dusk" };
 // Dark glass tuned per texture so white text over it stays above 4.5:1.
 const SCRIM: Record<TextureName, string> = {
   sky: "bg-[rgb(4_18_32/0.42)]",
   field: "bg-[rgb(6_16_4/0.45)]",
   amber: "bg-[rgb(0_0_0/0.34)]",
   forest: "bg-[rgb(0_0_0/0.36)]",
+  "lines-sky": "bg-[rgb(4_14_26/0.78)] backdrop-blur-md",
+  "lines-dusk": "bg-[rgb(20_8_4/0.7)] backdrop-blur-md",
 };
 
 export function TexturePanel({ texture, className = "", children }: { texture: TextureName; className?: string; children?: ReactNode }) {

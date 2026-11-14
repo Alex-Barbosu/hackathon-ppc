@@ -5,6 +5,7 @@ import { Toasts } from "../chaos/Toasts";
 import { AlertFeed } from "./AlertFeed";
 import { HeroCharts } from "./HeroCharts";
 import { MeterIntegrity } from "./MeterIntegrity";
+import { StatsRow } from "./StatsRow";
 import { StorageStrip } from "./StorageStrip";
 import { Tiles } from "./Tiles";
 
@@ -14,9 +15,10 @@ export function OperationsPage() {
       <PageHero label="Operations" title={<>Every guarantee, <em>live</em>.</>}>
         Live from the last minute, refreshed every 5 seconds. Break something from the chaos dock and watch the guarantees hold.
       </PageHero>
+      <StatsRow />
       {/* Alerts sit on the sky panel: the first thing an operator should read. */}
-      <TexturePanel texture="sky" className="flex min-h-[320px] justify-center px-4 py-10 sm:px-10 sm:py-16">
-        <Scrim texture="sky" className="w-full max-w-3xl p-6 sm:p-8"><AlertFeed /></Scrim>
+      <TexturePanel texture="lines-sky" className="flex min-h-[320px] justify-center px-4 py-10 sm:px-10 sm:py-16">
+        <Scrim texture="lines-sky" className="w-full max-w-3xl p-6 sm:p-8"><AlertFeed /></Scrim>
       </TexturePanel>
       <section className="space-y-10">
         <SectionTitle sub="PostgreSQL, S3 and FTPS, then latency, throughput and errors for each category.">
