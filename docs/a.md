@@ -821,3 +821,38 @@ corrupt row is never the target; the oldest wins).
 To note: this stack's `.env` can point the simulator at the Prism mock (`METER_TARGET_URL=http://mock-api:4010/...`), and then no reading reaches
 the API. For the demo, remove that line (the default is the real API through Caddy `:8088`). Also, a long-running Caddy container keeps the
 config it started with when the Caddyfile is replaced by a `git pull`: if `caddy:8088` refuses connections, `docker compose up -d --force-recreate caddy`.
+
+## Demo data: `make a-seed-demo`
+
+A stack that has run for a few minutes looks empty. `scripts/seed_demo.py` fills it through the real API (nothing is written to the database
+by hand except the arrival times, below), so every number on the dashboards comes from the paths the judges will test.
+
+| What | Default | Notes |
+| --- | --- | --- |
+| Meters | 571 (`METERS=440`, but at least 40 in each of the 11 counties) | ids `RO-MT/BN/DB-1xxxxx`, so the simulator's `RO-xx-000001...` can run next to them; coordinates around each county centre; 88 % households, 12 % businesses |
+| Reading files | 191 856 (`DAYS=14`, `PER_FILE=4`: one file an hour) | sent with the device token and an `Idempotency-Key`; 775 000 quarter-hour intervals in `meter_intervals` |
+| Documents | 1 500 (`DOCS=1500`) | invented Romanian customers, 12 kinds (contract, aviz, factură, reclamație...), 20 KB to 1.5 MB, encrypted on the FTP server and audited; spread over 120 days |
+| Outage records | 26 (the existing `seed_outages.py`) | COMTRADE recordings with their county: a storm in Dobrogea, a recurring fault in Timiș |
+
+What is in the meter data: a normal Romanian load curve (morning and evening peaks, businesses in office hours, weekends later), one cold-snap day (+35 %, four
+days ago) for "peak day against a normal day", about 4 % of meters with the simulator's planted faults (spike, one-interval drop, stuck value, voltage sag), and
+12 meters with a sustained theft-like drop (-65 %) from the second half of the period. The ids of the planted ones are saved in
+`~/.cache/filegrid/seed-truth.json` (not in the database), so the detector can be checked against them.
+
+- **Same data every run.** The numbers come from seeded random generators, so a second run answers `200 duplicate` for every reading and stores nothing twice.
+  `make a-seed-clean` removes the meters and the documents it made (documents through `DELETE /files/{id}`, listed in `~/.cache/filegrid/seed-documents.json`).
+- **Arrival times.** The server stamps `received_at` and `created_at` with the upload time. So that a day looks like a day, the script moves them afterwards:
+  a reading file to just after the period it covers, a document to a working-day office hour in the last 120 days (`--no-backdate` keeps the upload time).
+  `audit_log.at` is not touched: it keeps the real time, because the hash chain covers it.
+- **Time and size.** About 5 minutes (900 readings a second, 30 documents a second), 830 MB of database and about 200 MB on the FTP volume.
+
+### Why not more meters
+
+Zone C's anomaly view (`insights.v_meter_anomaly_candidates`) reads every interval of the last 14 days on each request, with no cache, and costs
+about 25 microseconds an interval on this laptop. Measured: 776 000 intervals, 18.5 s; 2.7 million (2 000 meters), 62 s, the same with a bigger `work_mem` (it is
+CPU, not memory). At 62 s the Anomalies page, the briefing and the analyst would all hang. So the volume goes into **more files** (hourly files instead of one
+a day: 192 000 readings), not more intervals. `METERS=2000` works, but needs that view to be materialized or cached first (Zone C).
+
+For Zone C: the first 50 anomalies by score are all spikes (a spike is 12 times the usual, so its z-score is far above anything else), in all 11 counties. The
+sustained theft-like drops (12 planted) are not among them: only one shows. If the demo should show them, they need their own ranking (a drop sustained over
+days against the meter's own earlier level), or a list per kind.
