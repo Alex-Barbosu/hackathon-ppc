@@ -16,6 +16,8 @@ export interface LabSource { latest(): Promise<{ recommendation?: Array<{ catego
 export interface IntelligenceDeps {
   db: Db; secret: string; ai: AiConfig; prom: PromLike; knowledge: KnowledgeSearch; lab: LabSource;
   onAlert?: (status: string) => void; log?: (m: string) => void;
+  /** Runs right after alerts are stored, so the pager reacts to the webhook instead of its next tick. */
+  onAlertsStored?: () => void;
 }
 
 /** Alertmanager reaches insights directly; anything that came through Caddy carries forwarding headers. */
@@ -53,6 +55,7 @@ export function registerIntelligence(app: FastifyInstance, d: IntelligenceDeps):
     if (!alerts) return reply.code(400).send({ code: "BAD_REQUEST", message: "not an Alertmanager v4 webhook" });
     d.onAlert?.((req.body as { status?: string }).status ?? "unknown");
     queue.enqueue(await upsertAlerts(d.db, alerts));
+    d.onAlertsStored?.();
     return reply.code(202).send();
   });
 

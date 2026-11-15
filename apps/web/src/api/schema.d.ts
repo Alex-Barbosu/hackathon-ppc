@@ -490,6 +490,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/insights/pages/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether phone push is on and which ntfy topics to subscribe (admin only; the topic is the secret) */
+        get: operations["getPagerSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/insights/pages/{pageId}/ack": {
         parameters: {
             query?: never;
@@ -945,6 +962,7 @@ export interface components {
             alert?: string;
             region?: components["schemas"]["Region"];
             county?: components["schemas"]["County"];
+            storage?: components["schemas"]["Storage"];
             /** Format: date-time */
             createdAt: string;
             /**
@@ -961,6 +979,23 @@ export interface components {
             ackedAt?: string;
             /** @description Username, or "phone" when acknowledged from the notification */
             ackedBy?: string;
+        };
+        PagerSetup: {
+            /** @description false when NTFY_TOPIC is not set: pages show in the app only */
+            phone: boolean;
+            /** @example https://ntfy.sh */
+            server?: string;
+            topics?: {
+                admin: string;
+                /** @description Topic per region */
+                dispatch: {
+                    [key: string]: string;
+                };
+            };
+            /** @description Seconds an alert must fire before it pages */
+            holdSec: number;
+            /** @description Outage records from one county in 15 min that page dispatch */
+            gridThreshold: number;
         };
         Incident: {
             id: string;
@@ -1879,6 +1914,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnCallPage"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getPagerSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Setup */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagerSetup"];
                 };
             };
             401: components["responses"]["Error"];

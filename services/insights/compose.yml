@@ -21,7 +21,7 @@ services:
       NTFY_TOKEN: ${NTFY_TOKEN:-}
       # What the phone opens from a page; set to this laptop's LAN address for the demo.
       FILEGRID_PUBLIC_URL: ${FILEGRID_PUBLIC_URL:-https://localhost}
-      PAGER_HOLD_SEC: ${PAGER_HOLD_SEC:-60}
+      PAGER_HOLD_SEC: ${PAGER_HOLD_SEC:-0}
       PAGER_GRID_THRESHOLD: ${PAGER_GRID_THRESHOLD:-5}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks: [app, data]

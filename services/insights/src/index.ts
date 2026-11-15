@@ -13,6 +13,7 @@ import { RunStore } from "./storageLab/store.js";
 import { listenAcks, ntfyFromEnv } from "./intelligence/ntfy.js";
 import { Pager, pagerConfigFromEnv } from "./intelligence/pager.js";
 import { registerPager } from "./intelligence/pagerRoutes.js";
+import { mintAdminToken } from "./storageLab/auth.js";
 
 const port = Number(process.env.PORT ?? 8070);
 const registry = new Registry();
@@ -39,20 +40,31 @@ app.get("/insights/health", async () => ({
 }));
 app.get("/insights/metrics", async (_req, reply) => reply.type(registry.contentType).send(await registry.metrics()));
 
+const apiUrl = process.env.FILEGRID_API_URL ?? "http://filegrid-api:8080";
+const secret = process.env.JWT_SECRET ?? "";
+const ntfy = ntfyFromEnv(process.env, (m) => app.log.warn(m));
+const pager = new Pager({
+  db: pool, cfg: pagerConfigFromEnv(process.env, ntfy), log: (m) => app.log.warn(m),
+  onPage: (route) => pagesSent.inc({ route }), onAck: (via) => pagesAcked.inc({ via }),
+  storageHealth: async () => {
+    // filegrid-api probes every storage each 2 s; reading its answer is how a page lands in seconds, not after
+    // the StorageDown rule's 30 s plus Alertmanager's grouping.
+    const res = await fetch(`${apiUrl}/api/v1/storages/health`, { headers: { authorization: `Bearer ${mintAdminToken(secret, 60, "pager")}` }, signal: AbortSignal.timeout(2500) });
+    if (!res.ok) throw new Error(`storages/health ${res.status}`);
+    return (await res.json()) as Array<{ storage: string; up: boolean }>;
+  },
+});
+registerPager(app, pager, process.env.JWT_SECRET ?? "");
+
 const labStore = new RunStore(pool);
 storageLabRoutes(app, labStore, process.env.FILEGRID_API_URL ?? "http://filegrid-api:8080", process.env.JWT_SECRET ?? "");
 registerIntelligence(app, {
   db: pool, secret: process.env.JWT_SECRET ?? "", ai: aiConfigFromEnv(process.env), prom: new PromClient(process.env.PROMETHEUS_URL ?? "http://prometheus:9090"),
   knowledge: knowledgeFromEnv(process.env), lab: labStore,
   onAlert: (status) => alertsReceived.inc({ status }), log: (m) => app.log.warn(m),
+  onAlertsStored: () => void pager.tick(),
 });
 
-const ntfy = ntfyFromEnv(process.env, (m) => app.log.warn(m));
-const pager = new Pager({
-  db: pool, cfg: pagerConfigFromEnv(process.env, ntfy), log: (m) => app.log.warn(m),
-  onPage: (route) => pagesSent.inc({ route }), onAck: (via) => pagesAcked.inc({ via }),
-});
-registerPager(app, pager, process.env.JWT_SECRET ?? "");
 
 try {
   const applied = await migrate(pool, new URL("../migrations", import.meta.url).pathname);
@@ -65,9 +77,10 @@ try {
 
 await app.listen({ host: "0.0.0.0", port });
 
-// The pager runs after migrations so its table exists. Every 10 s keeps a page within seconds of its hold time.
+// The pager runs after migrations so its table exists. Every 3 s: a page should land while the operator is still
+// looking at the Chaos button they pressed.
 const stopPager = new AbortController();
-const pagerTimer = setInterval(() => void pager.tick(), 10_000);
+const pagerTimer = setInterval(() => void pager.tick(), 3_000);
 if (ntfy) void listenAcks(ntfy, (a) => pager.ackFromPhone(a.id, a.token), stopPager.signal, (m) => app.log.warn(m));
 app.log.info({ phone: ntfy ? "on" : "off" }, "pager started");
 for (const sig of ["SIGTERM", "SIGINT"] as const) process.once(sig, () => { clearInterval(pagerTimer); stopPager.abort(); void app.close().then(() => process.exit(0)); });

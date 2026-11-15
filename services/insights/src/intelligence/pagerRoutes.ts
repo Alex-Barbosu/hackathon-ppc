@@ -12,6 +12,13 @@ export function registerPager(app: FastifyInstance, pager: Pager, secret: string
     return pager.list(c.role);
   });
 
+  app.get("/insights/pages/setup", async (req, reply) => {
+    const c = authed(req, reply, secret);
+    if (!c) return reply;
+    if (c.role !== "admin") return reply.code(403).send({ code: "FORBIDDEN", message: "pager setup is for admin" });
+    return pager.setup();
+  });
+
   app.post<{ Params: { pageId: string } }>("/insights/pages/:pageId/ack", async (req, reply) => {
     const c = authed(req, reply, secret);
     if (!c) return reply;
