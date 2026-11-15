@@ -31,10 +31,12 @@ async function runCell(api: ApiClient, cell: Cell, save: () => Promise<void>): P
   let consecutive = 0;
   let integrity = true;
   for (let i = 0; i < cell.samples && consecutive < MAX_CONSECUTIVE_ERRORS; i++) {
+    let stored = "";
     try {
       const t0 = performance.now();
       const up = await (cell.method === "tus" ? api.uploadTus(cell.category, cell.sizeBytes) : api.uploadForced(cell.category, cell.storage, cell.sizeBytes)).catch((e: unknown) => { throw asLabError(e, "upload"); });
       const wMs = performance.now() - t0;
+      stored = up.receipt.id;
       // A silent fallback would credit this storage with another one's speed.
       if (up.receipt.storage !== cell.storage) throw new LabError("upload:FALLBACK");
       if (up.receipt.sha256 && up.receipt.sha256 !== up.sha256) { integrity = false; throw new LabError("upload:INTEGRITY_FAILED"); }
@@ -50,6 +52,9 @@ async function runCell(api: ApiClient, cell: Cell, save: () => Promise<void>): P
       if (e instanceof LabError && e.code.endsWith(":INTEGRITY_FAILED")) integrity = false;
       recordError(cell, e instanceof LabError ? e.code : "upload:NETWORK");
     }
+    // Benchmark files used to stay forever: a run left 100 MB videos in S3 and filled the Library with
+    // storage-lab-*.bin rows. Deleted outside the timed section, so it never counts against a storage.
+    if (stored) await api.remove(stored);
     cell.completed++;
     if (writes.length) {
       cell.write = latency(writes); cell.read = latency(reads);
@@ -67,6 +72,12 @@ async function runCell(api: ApiClient, cell: Cell, save: () => Promise<void>): P
 export async function executeRun(run: Run, api: ApiClient, store: RunStore, log: (m: string) => void): Promise<void> {
   const save = () => store.save(run);
   try {
+    // Sweep what earlier runs left behind (up to 300 files a run), so the Library is clean after the next benchmark.
+    for (let i = 0; i < 3; i++) {
+      const old = await api.leftovers().catch(() => []);
+      if (!old.length) break;
+      for (const id of old) await api.remove(id);
+    }
     for (const cell of run.cells) {
       await runCell(api, cell, save);
       log(`cell ${cell.category}/${cell.storage} done: ${cell.errors} errors`);

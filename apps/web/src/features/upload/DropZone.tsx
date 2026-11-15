@@ -26,8 +26,8 @@ export function DropZone({ file, onFile, disabled }: DropZoneProps) {
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={drop}
-      className={`w-full rounded-widget border-[0.8px] border-dashed px-6 py-14 text-left transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
-        over ? "border-white bg-accent-soft" : "border-white/20 bg-panel hover:border-white/50"
+      className={`w-full rounded-widget border-[0.8px] border-dashed px-6 py-14 text-left transition-[border-color,background-color,transform] duration-300 focus-visible:outline-2 focus-visible:outline-accent ${
+        over ? "scale-[1.01] border-white bg-accent-soft" : "border-white/20 bg-panel hover:border-white/50"
       }`}
     >
       <input ref={input} type="file" hidden data-testid="file-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />

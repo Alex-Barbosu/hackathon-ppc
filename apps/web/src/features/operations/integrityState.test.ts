@@ -36,3 +36,9 @@ test("after an API restart the lifetime totals would differ but the windowed val
   assert.equal(integrityState(lifetime.acked, lifetime.stored, 0).kind, "differs");
   assert.equal(integrityState(window10m.acked, window10m.stored, 0).kind, "equal");
 });
+
+// Two scrape targets are read up to 5 s apart; at 5 readings a second that is up to 25 readings of honest gap.
+test("a gap that one scrape interval of traffic explains is in step, a larger one still differs", () => {
+  assert.deepEqual(integrityState(3010, 3006, 0), { kind: "in-step", acked: 3010, stored: 3006, duplicates: 0, gap: 4 });
+  assert.equal(integrityState(3010, 2950, 0).kind, "differs");
+});

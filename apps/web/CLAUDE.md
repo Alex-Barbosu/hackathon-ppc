@@ -30,8 +30,12 @@ Changed by Alex on 14 Nov 2026: the web app follows Origin (useorigin.com) close
 #050505, white as the only accent, colour for status only. Headings in Newsreader Light (300)
 with one italic word; body in Inter Light; labels, nav and buttons in Roboto Mono capitals.
 Cards 4% white with 0.8 px 8% borders and 24 px radius; widget panels #121212, 16 px radius.
-Photography is replaced by our own procedural textures (`public/textures`, `tex-*` utilities)
-and a CSS 3D `PhoneFrame` that shows real FileGrid UI. No AI tells: no glows, blobs or sparkles.
+Photography is replaced by our own rendered scenes: `src/three/` builds a transmission line
+(lattice towers, sagging cables, cloud sky) in three.js; `GridScene` shows it live on Login, and
+`npm run textures` (`tools/`, needs Playwright) renders the stills in `public/textures` (`tex-*`
+utilities) from the same code. `PhoneFrame` is a layered CSS 3D phone that shows real FileGrid UI.
+Motion goes through `components/motion` (`SPRING`, `Reveal`, `Stagger`, `Ticker`); reduced motion
+is honoured everywhere, and the 3D scene falls back to its still. No AI tells: no glows, blobs or sparkles.
 Tokens live in `src/index.css` `@theme`. Components under 80 lines, named exports, domain logic
 in custom hooks, spring motion, AA contrast, visible focus rings.
 

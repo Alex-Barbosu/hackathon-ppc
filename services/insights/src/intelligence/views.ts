@@ -15,12 +15,16 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** A plain sentence built from the view's own numbers; no model call, so it costs nothing and cannot drift. */
-export function explainAnomaly(kind: AnomalyKind, row: { kwh: number; baseline: number; voltage: number; score: number }): string {
+export function explainAnomaly(kind: AnomalyKind, row: { kwh: number; baseline: number; voltage: number; score: number; basis?: string }): string {
+  // The view falls back to the meter's own last readings until it has five days of history (V306); say which.
+  const usual = row.basis === "recent"
+    ? `its previous readings averaged ${r2(row.baseline)} kWh`
+    : `this meter usually uses ${r2(row.baseline)} kWh at this time of day`;
   switch (kind) {
     case "consumption_drop":
-      return `Used ${r2(row.kwh)} kWh where this meter usually uses ${r2(row.baseline)} kWh at this time of day (${r1(row.score)} standard deviations below). A drop like this can mean an outage on site or tampering.`;
+      return `Used ${r2(row.kwh)} kWh where ${usual} (${r1(row.score)} standard deviations below). A drop like this can mean an outage on site or tampering.`;
     case "spike":
-      return `Used ${r2(row.kwh)} kWh where this meter usually uses ${r2(row.baseline)} kWh at this time of day (${r1(row.score)} standard deviations above).`;
+      return `Used ${r2(row.kwh)} kWh where ${usual} (${r1(row.score)} standard deviations above).`;
     case "stuck_meter":
       return `Reported the same ${r2(row.kwh)} kWh for eight readings in a row, which a working meter rarely does.`;
     case "voltage_sag":
@@ -34,7 +38,7 @@ const KINDS: readonly string[] = ["consumption_drop", "stuck_meter", "voltage_sa
 const ANOMALY_SQL = `
   SELECT * FROM (
     SELECT DISTINCT ON (meter_id, kind) meter_id, region, county, kind, score::float8 AS score, at,
-           kwh::float8 AS kwh, baseline_kwh::float8 AS baseline_kwh, voltage::float8 AS voltage
+           kwh::float8 AS kwh, baseline_kwh::float8 AS baseline_kwh, voltage::float8 AS voltage, basis
     FROM insights.v_meter_anomaly_candidates
     WHERE ($1::text IS NULL OR region = $1)
     ORDER BY meter_id, kind, score DESC, at DESC
@@ -49,7 +53,7 @@ export async function listAnomalies(db: Db, region?: string, limit = 50): Promis
     return [{
       meterId: str(r.meter_id), ...(r.region ? { region: str(r.region) } : {}), ...(r.county ? { county: str(r.county) } : {}),
       kind: k, score: num(r.score), at: iso(r.at),
-      explanation: explainAnomaly(k, { kwh: num(r.kwh), baseline: num(r.baseline_kwh), voltage: num(r.voltage), score: num(r.score) }),
+      explanation: explainAnomaly(k, { kwh: num(r.kwh), baseline: num(r.baseline_kwh), voltage: num(r.voltage), score: num(r.score), basis: str(r.basis) }),
     }];
   });
 }

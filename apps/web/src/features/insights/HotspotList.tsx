@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { ExportButton } from "../../components/ExportButton";
 import type { Column } from "../../lib/csv";
 import { formatDateTime } from "../../lib/format";
@@ -38,9 +39,9 @@ function HotspotRow({ h, max }: { h: Hotspot; max: number }) {
     <li>
       <p className="flex justify-between gap-3 text-sm">
         <span>{h.county === "Not recorded" ? "County not recorded" : h.county} <span className="text-muted">· {cap(h.region)}</span></span>
-        <span className="tabular-nums">{h.outages} records</span>
+        <span className="tabular-nums">{h.outages} {h.outages === 1 ? "record" : "records"}</span>
       </p>
-      <div className="mt-1 h-1.5 rounded-full bg-line" aria-hidden><div className="h-full rounded-full bg-chart" style={{ width: `${(h.outages / max) * 100}%` }} /></div>
+      <div className="mt-1 h-1.5 rounded-full bg-line" aria-hidden><motion.div className="h-full rounded-full bg-chart" initial={{ width: 0 }} whileInView={{ width: `${(h.outages / max) * 100}%` }} viewport={{ once: true }} transition={{ type: "spring", stiffness: 60, damping: 18 }} /></div>
       {stations.length > 0 && (
         <p className="mt-1.5 text-[13px] text-muted">
           {stations.slice(0, 3).map((s) => `${s.station.replace(/^Statia\s+/i, "")} (${s.outages})`).join(" · ")}
