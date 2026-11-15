@@ -1,6 +1,6 @@
 import type { Category, UploadCategory } from "./domain";
 
-export type Page = "/" | "/library" | "/operations" | "/lab" | "/insights";
+export type Page = "/" | "/library" | "/operations" | "/lab" | "/insights" | "/inspection";
 export type UserRole = "field" | "dispatch" | "connections" | "admin" | "meter-device";
 
 export interface Access {
@@ -17,9 +17,9 @@ export interface Access {
 // The API is the real gate (chaos, policy and Storage Lab runs are admin only server side);
 // this table keeps people from seeing screens and categories that are not theirs.
 const ACCESS: Record<UserRole, Access> = {
-  admin: { pages: ["/", "/library", "/operations", "/lab", "/insights"], upload: ["outage", "document", "video"], library: ["outage", "document", "video", "meter"], chaos: true, lab: true, analyst: true },
+  admin: { pages: ["/", "/library", "/operations", "/lab", "/insights", "/inspection"], upload: ["outage", "document", "video"], library: ["outage", "document", "video", "meter"], chaos: true, lab: true, analyst: true },
   dispatch: { pages: ["/", "/library", "/operations", "/insights"], upload: ["outage"], library: ["outage"], chaos: false, lab: false, analyst: true },
-  field: { pages: ["/", "/library"], upload: ["video"], library: ["video"], chaos: false, lab: false, analyst: false },
+  field: { pages: ["/", "/library", "/inspection"], upload: ["video"], library: ["video"], chaos: false, lab: false, analyst: false },
   connections: { pages: ["/", "/library"], upload: ["document"], library: ["document"], chaos: false, lab: false, analyst: false },
   "meter-device": { pages: [], upload: [], library: [], chaos: false, lab: false, analyst: false },
 };

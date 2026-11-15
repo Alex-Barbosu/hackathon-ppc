@@ -5,6 +5,7 @@ import { UploadPage } from "./features/upload/UploadPage";
 import { Shell } from "./layout/Shell";
 import { InsightsPage } from "./features/insights/InsightsPage";
 import { LabPage } from "./features/lab/LabPage";
+import { InspectionPage } from "./features/inspection/InspectionPage";
 import { OperationsPage } from "./features/operations/OperationsPage";
 import { accessFor, type Page } from "./lib/permissions";
 import { useSession } from "./state/session";
@@ -29,6 +30,7 @@ const upload = createRoute({ getParentRoute: () => app, path: "/", component: Up
 const library = createRoute({ getParentRoute: () => app, path: "/library", component: LibraryPage, beforeLoad: only("/library") });
 const operations = createRoute({ getParentRoute: () => app, path: "/operations", component: OperationsPage, beforeLoad: only("/operations") });
 const insights = createRoute({ getParentRoute: () => app, path: "/insights", component: InsightsPage, beforeLoad: only("/insights") });
+const inspection = createRoute({ getParentRoute: () => app, path: "/inspection", component: InspectionPage, beforeLoad: only("/inspection") });
 const lab = createRoute({ getParentRoute: () => app, path: "/lab", component: LabPage, beforeLoad: only("/lab") });
 // Old link: the chaos controls now open from the nav bar on any screen.
 const chaos = createRoute({
@@ -40,7 +42,7 @@ const chaos = createRoute({
 });
 
 export const router = createRouter({
-  routeTree: root.addChildren([login, app.addChildren([upload, library, operations, lab, insights, chaos])]),
+  routeTree: root.addChildren([login, app.addChildren([upload, library, operations, lab, insights, inspection, chaos])]),
 });
 
 declare module "@tanstack/react-router" {
