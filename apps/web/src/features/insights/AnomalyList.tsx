@@ -22,7 +22,6 @@ export function AnomalyList() {
     <section aria-label="Meter anomalies" className="overflow-hidden rounded-widget border-[0.8px] border-line bg-panel p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h3 className="label text-faint">Meter anomalies</h3>
           <ExportButton name="meter-anomalies" rows={data} columns={ANOMALY_COLUMNS} />
         </div>
         <Select label="Region" hideLabel className="w-48" value={region} options={withAll("All regions", REGION_OPTIONS)} onChange={setRegion} />
@@ -35,7 +34,7 @@ export function AnomalyList() {
           <li key={`${a.meterId}-${a.kind}`} className="py-3">
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               <span className="font-mono text-[13px]">{a.meterId}</span>
-              <span className="rounded-md bg-warn-soft px-2 py-1 text-[13px] text-warn">{KIND[a.kind] ?? a.kind}</span>
+              <span className="text-[13px] text-warn">{KIND[a.kind] ?? a.kind}</span>
               <span className="text-[13px] text-muted tabular-nums">{a.county ?? a.region ?? ""} · {formatDateTime(a.at)} · score {a.score}</span>
             </p>
             {a.explanation && <p className="mt-1 text-[13px] text-muted">{a.explanation}</p>}

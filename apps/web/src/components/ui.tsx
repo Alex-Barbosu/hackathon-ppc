@@ -27,21 +27,15 @@ export function Arrow() {
 }
 
 export function Label({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <p className={`label text-faint ${className}`}>{children}</p>;
+  return <p className={`caption text-muted ${className}`}>{children}</p>;
 }
 
 type Tone = "good" | "bad" | "warn" | "info" | "neutral";
-const CHIP: Record<Tone, string> = {
-  good: "bg-good-soft text-good",
-  bad: "bg-bad-soft text-bad",
-  warn: "bg-warn-soft text-warn",
-  info: "bg-info/14 text-info",
-  neutral: "bg-white/8 text-ink",
-};
+const CHIP: Record<Tone, string> = { good: "text-good", bad: "text-bad", warn: "text-warn", info: "text-info", neutral: "text-muted" };
 
-// Status always carries a word, never colour alone.
+// Status is a coloured word, not a filled tag: boxed pills beside every title read as decoration.
 export function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-normal ${CHIP[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center whitespace-nowrap text-[13px] font-normal ${CHIP[tone]}`}>{children}</span>;
 }
 
 // A notice card: mono label, serif headline at 80% white, Inter body. Origin's event card.

@@ -23,11 +23,11 @@ export function LoginPage() {
         <p className="mt-1 text-[13px] text-faint">Rețele Electrice România · operations console</p>
         <form onSubmit={submit} className="mt-7 space-y-4">
           <label className="block">
-            <span className="label mb-2 block text-faint">Username</span>
+            <span className="caption mb-2 block text-muted">Username</span>
             <input className={FIELD} autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
           </label>
           <label className="block">
-            <span className="label mb-2 block text-faint">Password</span>
+            <span className="caption mb-2 block text-muted">Password</span>
             <input className={FIELD} type="password" autoComplete="current-password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
           {login.isError && <p role="alert" className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">{login.error.message}</p>}
@@ -35,7 +35,7 @@ export function LoginPage() {
         </form>
         {/* Demo accounts are named after their roles; one row of chips fills the username without a wall of cards. */}
         <div role="radiogroup" aria-label="Demo account" className="mt-6 flex flex-wrap items-center gap-1.5 border-t-[0.8px] border-line pt-4">
-          <span className="label mr-1 text-faint">Demo</span>
+          <span className="caption mr-1 text-muted">Demo</span>
           {ROLES.map((r) => (
             <button key={r.id} type="button" role="radio" aria-checked={username === r.id} title={r.hint} onClick={() => setUsername(r.id)}
               className={`label rounded-md px-2 py-1 transition-colors focus-visible:outline-2 focus-visible:outline-accent ${username === r.id ? "bg-white text-black" : "bg-white/8 text-muted hover:text-ink"}`}>

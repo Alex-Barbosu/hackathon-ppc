@@ -14,9 +14,9 @@ export function AlertFeed() {
   const firing = shown.filter((i) => i.status === "firing").length;
   return (
     <section aria-label="Alerts">
-      <p className="label text-faint">Alerts · last 15 minutes</p>
+      <p className="caption text-muted">Alerts, last 15 minutes</p>
       {isError && <p className="mt-3 text-[13px] text-white/75">Alerts could not be read. Showing nothing rather than a stale list.</p>}
-      {!isError && firing === 0 && <h3 className="mt-3 flex items-center gap-2.5 text-lg font-normal"><span aria-hidden className="size-2 rounded-full bg-good" />No alerts firing. Every guarantee is holding.</h3>}
+      {!isError && firing === 0 && <h3 className="mt-3 text-lg font-normal">No alerts firing. Every guarantee is holding.</h3>}
       <ul className="mt-3 space-y-3">
         {shown.map((i) => {
           const live = i.status === "firing";
@@ -24,7 +24,7 @@ export function AlertFeed() {
             <li key={i.id} className={`rounded-widget border-[0.8px] bg-black/30 p-4 ${live ? (i.severity === "critical" ? "border-bad/50" : "border-warn/50") : "border-white/12"}`}>
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <span className="font-normal">{i.alert}</span>
-                <span className={`rounded-md px-2 py-1 text-[13px] ${live ? (i.severity === "critical" ? "bg-bad-soft text-bad" : "bg-warn-soft text-warn") : "bg-good-soft text-good"}`}>
+                <span className={`text-[13px] ${live ? (i.severity === "critical" ? "text-bad" : "text-warn") : "text-good"}`}>
                   {live ? (i.severity === "critical" ? "Critical, firing" : "Warning, firing") : "Resolved"}
                 </span>
                 <span className="text-[13px] text-white/70 tabular-nums">since {formatDateTime(i.startedAt)}</span>

@@ -30,9 +30,7 @@ export function UploadPage() {
 
   return (
     <>
-      <PageHero label="Upload" title="Upload">
-        Hashed on arrival, routed by the category policy, receipt returned with SHA-256 and trace ID.
-      </PageHero>
+      <PageHero title="Upload" />
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-label="Upload form" className={`${CARD} space-y-6 p-5 sm:p-8`}>
           <CategoryPicker value={category} allowed={allowed} onChange={(c) => { setCategory(c); multipart.reset(); tus.reset(); }} />
@@ -44,9 +42,9 @@ export function UploadPage() {
           {multipart.isError && <p role="alert" className="text-sm text-bad">{multipart.error.message}</p>}
           {isVideo && tus.state.phase !== "idle" && <TusProgress state={tus.state} onToggle={tus.toggle} />}
           {isVideo && tus.state.phase === "done" && !receipt && <p className="text-sm text-good">{tus.state.message}</p>}
-          {receipt && <ReceiptCard receipt={receipt} />}
         </section>
-        <UploadFacts category={category} />
+        {/* The receipt takes the policy's place beside the form, so the screen never grows past one viewport. */}
+        {receipt ? <ReceiptCard receipt={receipt} /> : <UploadFacts category={category} />}
       </div>
     </>
   );

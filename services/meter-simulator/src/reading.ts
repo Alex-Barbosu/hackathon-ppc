@@ -2,6 +2,7 @@
 // reading's identity, so retries and post-restart replays resend byte-identical bodies.
 import type { Region } from "./geo.js";
 import { clamp, round, type Meter } from "./population.js";
+import { applyFault } from "./faults.js";
 import { gaussian, rng } from "./random.js";
 
 export const INTERVAL_MS = 15 * 60 * 1000;
@@ -110,6 +111,7 @@ export function buildInterval(meter: Meter, tsMs: number): Interval {
   } else if (event < 0.0008) {
     flags.push("clock_drift");
   }
+  if (meter.fault) ({ kwh, voltage } = applyFault(meter.fault, tsMs, INTERVAL_MS, meter.dailyKwh / 96, { kwh, voltage }));
   const interval: Interval = { ts: isoSeconds(tsMs), kwh: round(kwh, 3) };
   if (voltage !== undefined) interval.voltage = round(voltage, 1);
   if (flags.length > 0) interval.flags = flags;

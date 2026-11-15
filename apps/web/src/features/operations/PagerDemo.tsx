@@ -21,7 +21,7 @@ export function PagerDemo() {
   return (
     <div className="grid gap-6 border-t-[0.8px] border-line px-5 py-5 sm:grid-cols-2">
       <div className="min-w-0 space-y-2">
-        <p className="label text-faint">1 · Phone</p>
+        <p className="caption text-muted">Phone</p>
         {setup.isPending && <div className="h-16 animate-pulse rounded-lg bg-white/6" />}
         {setup.isError && <p className="text-[13px] text-muted">Pager setup could not be read.</p>}
         {setup.data && !setup.data.phone && (
@@ -36,7 +36,7 @@ export function PagerDemo() {
         )}
       </div>
       <div className="min-w-0 space-y-3">
-        <p className="label text-faint">2 · Trigger a page</p>
+        <p className="caption text-muted">Trigger a page</p>
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" className={BTN} disabled={act.isPending || chaos.isPending}
             onClick={() => act.mutate({ kind: "storage", storage: "s3", run: s3Stopped ? "start" : "stop" })}>

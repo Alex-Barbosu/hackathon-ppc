@@ -6,7 +6,7 @@ import { errorText, rejectedByDesign } from "./errorText";
 
 function Pill({ children, tone }: { children: string; tone: "accent" | "muted" }) {
   return (
-    <span className={`rounded-md px-2 py-0.5 font-mono text-[11px] font-medium uppercase tracking-label ${tone === "accent" ? "bg-accent text-accent-ink" : "border border-line text-muted"}`}>
+    <span className={`text-[13px] ${tone === "accent" ? "text-ink" : "text-muted"}`}>
       {children}
     </span>
   );
@@ -45,7 +45,7 @@ export function MatrixCell({ cell, recommended, current }: { cell: LabCell; reco
       <div className="mb-3 flex min-h-6 flex-wrap items-center gap-1.5">
         <span className="text-sm font-medium lg:hidden">{STORAGE_NAME[cell.storage]}</span>
         {recommended && <Pill tone="accent">Recommended</Pill>}
-        {current && <Pill tone="muted">Current policy</Pill>}
+        {current && <Pill tone="muted">{recommended ? "· current policy" : "Current policy"}</Pill>}
       </div>
       <Body cell={cell} />
       {running && (

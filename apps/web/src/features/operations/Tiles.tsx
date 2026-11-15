@@ -54,12 +54,12 @@ export function Tiles() {
               {status(r, e)}
             </div>
             <div>
-              <p className="label mb-2 text-faint">p95 latency</p>
+              <p className="caption mb-2 text-muted">p95 latency</p>
               <Big value={v} unit={u} />
             </div>
             <dl className="grid grid-cols-2 border-t-[0.8px] border-line pt-4 text-sm tabular-nums">
-              <div><dt className="label text-[11px] text-faint">Throughput</dt><dd className="mt-1">{fmtRate(r)} ops/s</dd></div>
-              <div><dt className="label text-[11px] text-faint">Errors</dt><dd className={`mt-1 ${e != null && e > 0.01 ? "text-bad" : ""}`}>{fmtPct(e)}</dd></div>
+              <div><dt className="caption text-muted">Throughput</dt><dd className="mt-1">{fmtRate(r)} ops/s</dd></div>
+              <div><dt className="caption text-muted">Errors</dt><dd className={`mt-1 ${e != null && e > 0.01 ? "text-bad" : ""}`}>{fmtPct(e)}</dd></div>
             </dl>
           </StaggerItem>
         );

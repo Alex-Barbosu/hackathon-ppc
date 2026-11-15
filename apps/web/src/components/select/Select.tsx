@@ -21,7 +21,7 @@ export function Select<T extends string>({ label, value, options, onChange, hide
   const current = options.find((o) => o.value === value);
   return (
     <div ref={lb.root} className={`relative ${className}`}>
-      <span id={`${id}-l`} className={hideLabel ? "sr-only" : "label mb-2 block text-faint"}>{label}</span>
+      <span id={`${id}-l`} className={hideLabel ? "sr-only" : "caption mb-2 block text-muted"}>{label}</span>
       <button type="button" role="combobox" aria-haspopup="listbox" aria-expanded={lb.open} aria-controls={`${id}-lb`}
         aria-labelledby={`${id}-l ${id}-v`} aria-activedescendant={lb.open ? `${id}-${lb.active}` : undefined}
         disabled={disabled} onClick={lb.toggle} onKeyDown={lb.onKeyDown}
@@ -39,7 +39,7 @@ export function Select<T extends string>({ label, value, options, onChange, hide
             className="absolute z-50 mt-2 max-h-72 w-full min-w-56 origin-top overflow-y-auto rounded-xl border-[0.8px] border-white/14 bg-[#161616] p-1.5 shadow-[0_24px_60px_-20px_rgb(0_0_0/0.9)]">
             {options.map((o, i) => (
               <li key={o.value} role="presentation">
-                {o.group && o.group !== options[i - 1]?.group && <p className="label px-3 pt-3 pb-1.5 text-[11px] text-faint">{o.group}</p>}
+                {o.group && o.group !== options[i - 1]?.group && <p className="caption px-3 pt-3 pb-1.5 text-muted">{o.group}</p>}
                 <div id={`${id}-${i}`} role="option" aria-selected={o.value === value}
                   onPointerEnter={() => lb.setActive(i)} onClick={() => lb.pick(i)}
                   className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-[15px] ${i === lb.active ? "bg-white/8" : ""}`}>

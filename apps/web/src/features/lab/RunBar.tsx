@@ -13,7 +13,7 @@ export function RunBar({ run }: { run: LabRun | null | undefined }) {
   const total = run ? (run.cells ?? []).reduce((a, c) => a + c.samples, 0) : 0;
   return (
     <div className="flex flex-wrap items-end gap-4">
-      <label className="label text-faint">
+      <label className="caption text-muted">
         Samples per cell
         <input type="number" min={1} max={200} value={n} disabled={!admin || running} onChange={(e) => setN(Number(e.target.value))}
           className={`${FIELD} mt-2 block w-28 tabular-nums`} />

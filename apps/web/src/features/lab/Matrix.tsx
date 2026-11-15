@@ -20,7 +20,7 @@ export function Matrix({ run, current }: Props) {
       <div className="mb-4 flex justify-end"><ExportButton name="storage-lab" rows={run?.cells} columns={CELL_COLUMNS} /></div>
       <div className="hidden grid-cols-[10rem_repeat(3,1fr)] gap-3 pb-3 lg:grid" aria-hidden>
         <span />
-        {STORAGE_ORDER.map((s) => <span key={s} className="label text-faint">{STORAGE_NAME[s]}</span>)}
+        {STORAGE_ORDER.map((s) => <span key={s} className="caption text-muted">{STORAGE_NAME[s]}</span>)}
       </div>
       <div className="divide-y-[0.8px] divide-line">
         {CATEGORY_ROWS.map((row) => (

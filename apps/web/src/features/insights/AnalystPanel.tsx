@@ -43,8 +43,7 @@ export function AnalystPanel() {
       <VoltaMark busy={busy} size={36} />
       <div>
         <p className="font-display text-2xl leading-none">{ANALYST_NAME}</p>
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-faint">
-          <span aria-hidden className={`size-1.5 rounded-full ${busy ? "bg-info" : down ? "bg-warn" : "bg-good"}`} />
+        <p className={`mt-1 text-xs ${down && !busy ? "text-warn" : "text-faint"}`}>
           {busy ? "Reading the metrics…" : down ? `Watching: ${down} storage${down === 1 ? "" : "s"} down` : "Grid analyst · all storages up"}
         </p>
       </div>
@@ -65,7 +64,7 @@ export function AnalystPanel() {
       ) : (
         <>
           <ChatMessages messages={messages} />
-          <div className="px-6 pb-4"><button type="button" onClick={reset} className="label text-faint hover:text-ink">New conversation</button></div>
+          <div className="px-6 pb-4"><button type="button" onClick={reset} className="caption text-muted hover:text-ink">New conversation</button></div>
           <div ref={end} />
         </>
       )}

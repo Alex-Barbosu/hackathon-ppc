@@ -43,6 +43,13 @@
   }
   h1, h2, h3 { font-weight: 300; }
   ::selection { background: rgb(255 255 255 / 0.2); }
+  /* Thin dark scrollbars everywhere: the default light-grey OS bar broke the console look. */
+  * { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.14); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgb(255 255 255 / 0.28); }
+  ::-webkit-scrollbar-corner { background: transparent; }
   input[type="range"] { accent-color: #ffffff; }
   option { background: var(--color-panel); color: var(--color-ink); }
 }
@@ -54,6 +61,14 @@
   line-height: 18px;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
+  font-weight: 400;
+}
+
+/* Section and field headings in plain sentence case. Mono capitals stay on buttons and nav only:
+   used above every heading they read as decorative tags, not as a tool for experts. */
+@utility caption {
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 400;
 }
 
