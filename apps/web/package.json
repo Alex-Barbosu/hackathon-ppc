@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "textures": "node tools/render-textures.mjs",
     "gen:api": "openapi-typescript ../../contracts/openapi.yaml -o src/api/schema.d.ts",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\""
   },
