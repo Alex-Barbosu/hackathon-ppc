@@ -31,7 +31,7 @@ export function TusProgress({ state, onToggle }: TusProgressProps) {
         {state.phase === "waiting" && <p className="text-sm text-warn">{state.message}</p>}
         {state.phase === "failed" && <p className="text-sm text-bad">{state.message} Uploaded bytes are kept where the server confirmed them; press Resume to try again.</p>}
         {state.resumedAfterDisconnect && state.phase !== "waiting" && (
-          <span className="rounded-md bg-accent-soft px-2 py-1 text-[13px] text-ink">Resumed after disconnect</span>
+          <span className="text-[13px] text-muted">Resumed after disconnect</span>
         )}
       </div>
       {state.phase === "failed" && <PrimaryButton className="mt-4" onClick={onToggle}>Resume upload</PrimaryButton>}

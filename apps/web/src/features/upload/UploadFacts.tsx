@@ -17,13 +17,12 @@ export function UploadFacts({ category }: { category: UploadCategory }) {
     : [];
   return (
     <aside aria-label="Routing policy" className={`${WIDGET} lg:sticky lg:top-28`}>
-      <p className="label border-b-[0.8px] border-line px-5 py-3 text-faint">Routing · policy v{data?.version ?? "–"}</p>
+      <p className="caption border-b-[0.8px] border-line px-5 py-3 text-muted">Routing, policy v{data?.version ?? "–"}</p>
       {p ? (
         <dl className="divide-y divide-line px-5 text-sm">
           {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-4 py-2.5"><dt className="text-muted">{k}</dt><dd className="text-right">{v}</dd></div>)}
         </dl>
       ) : <div className="m-5 h-40 animate-pulse rounded-lg bg-white/5" />}
-      <p className="border-t-[0.8px] border-line px-5 py-3 text-[12px] text-faint">Integrity: SHA-256 on arrival, verified again on every download.</p>
     </aside>
   );
 }

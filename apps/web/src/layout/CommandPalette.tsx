@@ -7,6 +7,7 @@ import { usePanels } from "../state/panels";
 import { useSession } from "../state/session";
 import { useAccess } from "../state/useAccess";
 import { NAV } from "./nav";
+import { useDemo } from "../features/demo/useDemo";
 
 interface Command { id: string; label: string; hint: string; run: () => void }
 
@@ -19,14 +20,17 @@ export function CommandPalette() {
   const access = useAccess();
   const show = usePanels((s) => s.show);
   const signOut = useSession((s) => s.signOut);
+  const startDemo = useDemo((s) => s.start);
 
   const commands = useMemo<Command[]>(() => [
     ...NAV.filter((n) => access.pages.includes(n.to)).map((n) => ({ id: n.to, label: n.label, hint: "Go to", run: () => void navigate({ to: n.to }) })),
     ...(access.analyst ? [{ id: "analyst", label: "Ask Volta, the analyst", hint: "Open", run: () => show("analyst") }] : []),
+    // The guided demo drives chaos-control, so it is offered to the roles that may use it.
+    ...(access.chaos ? [{ id: "demo", label: "Run the demo", hint: "Guided", run: () => { startDemo(); show("demo"); } }] : []),
     ...(access.chaos ? [{ id: "chaos", label: "Chaos controls", hint: "Open", run: () => show("chaos") }] : []),
     ...(access.pages.includes("/operations") ? [{ id: "grafana", label: "Grafana dashboards", hint: "New tab", run: () => void window.open(GRAFANA_HOME, "_blank", "noopener") }] : []),
     { id: "signout", label: "Sign out", hint: "Session", run: () => { signOut(); void navigate({ to: "/login" }); } },
-  ], [access, navigate, show, signOut]);
+  ], [access, navigate, show, signOut, startDemo]);
   const found = commands.filter((c) => c.label.toLowerCase().includes(q.trim().toLowerCase()));
 
   useEffect(() => {
@@ -56,7 +60,7 @@ export function CommandPalette() {
               {found.map((c, i) => (
                 <li key={c.id} role="option" aria-selected={i === at} onPointerEnter={() => setAt(i)} onClick={() => pick(c)}
                   className={`flex cursor-pointer items-center justify-between rounded-lg px-3.5 py-2.5 text-[15px] ${i === at ? "bg-white/10" : ""}`}>
-                  {c.label}<span className="label text-faint">{c.hint}</span>
+                  {c.label}<span className="caption text-muted">{c.hint}</span>
                 </li>
               ))}
               {found.length === 0 && <li className="px-3.5 py-3 text-sm text-muted">Nothing matches.</li>}

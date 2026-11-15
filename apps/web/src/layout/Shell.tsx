@@ -11,6 +11,7 @@ import { NavLinks } from "./NavLinks";
 import { useAccess } from "../state/useAccess";
 import { usePanels } from "../state/panels";
 import { ChaosDock } from "../features/chaos/ChaosDock";
+import { DemoPanel } from "../features/demo/DemoPanel";
 import { Toasts } from "../features/chaos/Toasts";
 import { AnalystLauncher } from "../features/insights/AnalystLauncher";
 import { AnalystPanel } from "../features/insights/AnalystPanel";
@@ -55,7 +56,7 @@ export function Shell() {
       </motion.main>
       <StatusBar />
       <CommandPalette />
-      {access.chaos && <ChaosDock />}
+      {access.chaos && <><ChaosDock /><DemoPanel /></>}
       {access.analyst && <><AnalystPanel /><AnalystLauncher /></>}
       <Toasts />
     </div>

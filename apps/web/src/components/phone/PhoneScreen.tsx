@@ -18,7 +18,7 @@ export function PhoneScreen({ eyebrow, title, status, rows, footer }: PhoneScree
         <GridMark size={16} />
         <span className="text-[13px] font-medium">FileGrid</span>
       </div>
-      <p className="label mt-6 text-[10px] leading-4 text-faint">{eyebrow}</p>
+      <p className="caption mt-6 leading-4 text-muted">{eyebrow}</p>
       <p className="mt-2 font-display text-[26px] leading-[1.1] text-balance">{title}</p>
       {status && <div className="mt-3">{status}</div>}
       <dl className="mt-5 overflow-hidden rounded-xl border-[0.8px] border-line bg-panel">

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Hotspot, Region } from "../../../lib/domain.ts";
-import { buildMapModel, dotRadius } from "./model.ts";
+import type { Anomaly, Hotspot, Region } from "../../../lib/domain.ts";
+import { buildAnomalyModel, buildMapModel, dotRadius } from "./model.ts";
 
 const h = (county: string, region: Region, outages: number): Hotspot => ({ county, region, outages, totalMinutes: 0, stations: [] });
 
@@ -23,4 +23,13 @@ test("no recordings: an empty map, every share zero", () => {
   const m = buildMapModel([]);
   assert.equal(m.dots.length, 0);
   assert.ok(m.regions.every((r) => r.share === 0));
+});
+
+const a = (meterId: string, county: string, score: number): Anomaly => ({ meterId, county, region: "dobrogea", kind: "spike", score, at: "2026-11-15T08:00:00Z", explanation: "" });
+
+test("anomaly layer counts distinct meters per county and keeps each meter's strongest anomaly", () => {
+  const m = buildAnomalyModel([a("M1", "Tulcea", 3), a("M1", "Tulcea", 7), a("M2", "Constanța", 4), a("M3", "Constanța", 5), a("M4", "", 9)]);
+  assert.deepEqual(m.dots.map((d) => [d.county, d.count]), [["Constanța", 2], ["Tulcea", 1]]);
+  assert.equal(m.dots[1]?.meters?.[0]?.score, 7);
+  assert.equal(m.total, 3);
 });

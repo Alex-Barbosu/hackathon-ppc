@@ -20,7 +20,7 @@ export function PagerPanel() {
   return (
     <section aria-label="Pager" className="overflow-hidden rounded-widget border-[0.8px] border-line bg-panel">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-4 pb-3.5">
-        <h3 className="label text-faint">Pager · {role === "admin" ? "platform and grid on-call" : "dispatch on-call"}</h3>
+        <h3 className="caption text-muted">Pager, {role === "admin" ? "platform and grid on-call" : "dispatch on-call"}</h3>
         {waiting > 0 && <span className="text-[13px] text-bad tabular-nums">{waiting} waiting for an answer</span>}
       </div>
       {role === "admin" && <PagerDemo />}

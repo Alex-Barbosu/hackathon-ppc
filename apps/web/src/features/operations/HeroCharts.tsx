@@ -6,14 +6,13 @@ import { usePromRange, type Point } from "./usePromQuery";
 const TIP = { background: "#121212", border: "0.8px solid rgb(255 255 255 / 0.16)", borderRadius: 12, fontSize: 13 };
 const time = (t: number) => new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-function Chart({ title, takeaway, data, unit, color, scale = 1 }: {
-  title: string; takeaway: string; data: Point[] | undefined; unit: string; color: string; scale?: number;
+function Chart({ title, data, unit, color, scale = 1 }: {
+  title: string; data: Point[] | undefined; unit: string; color: string; scale?: number;
 }) {
   const rows = (data ?? []).map((p) => ({ t: p.t, v: p.v == null ? null : p.v * scale }));
   return (
     <article className="rounded-card border-[0.8px] border-line bg-surface p-6 sm:p-8">
-      <p className="label text-faint">{title}</p>
-      <h3 className="mt-3 text-xl tracking-[-0.2px]">{takeaway}</h3>
+      <h3 className="text-lg font-normal">{title}</h3>
       <div className="mt-4 h-52" role="img" aria-label={`${title}, last 10 minutes`}>
         {rows.length === 0 ? (
           <p className="pt-16 text-sm text-muted">No samples in the last 10 minutes yet.</p>
@@ -41,11 +40,11 @@ export function HeroCharts() {
   const useQueue = (queue.data?.length ?? 0) > 0;
   return (
     <section aria-label="Storm isolation" className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <Chart title="Meter p95 latency" takeaway="Meter latency stays flat while another category is under storm." data={meter.data} unit="ms" scale={1000} color="var(--color-chart)" />
+      <Chart title="Meter p95 latency" data={meter.data} unit="ms" scale={1000} color="var(--color-chart)" />
       {useQueue ? (
-        <Chart title="Outage queue depth" takeaway="Items waiting in the outage bulkhead." data={queue.data} unit="items" color="var(--color-warn)" />
+        <Chart title="Outage queue depth" data={queue.data} unit="items" color="var(--color-warn)" />
       ) : (
-        <Chart title="Outage writes per second" takeaway="Outage load; queue depth is not reported yet." data={rate.data} unit="ops/s" color="var(--color-warn)" />
+        <Chart title="Outage writes per second" data={rate.data} unit="ops/s" color="var(--color-warn)" />
       )}
     </section>
   );

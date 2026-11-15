@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type PanelName = "chaos" | "analyst";
+export type PanelName = "chaos" | "analyst" | "demo";
 
 interface Panels {
   open: PanelName | null;

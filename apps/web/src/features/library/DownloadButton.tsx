@@ -16,7 +16,7 @@ export function DownloadButton({ id, name, streamed }: DownloadButtonProps) {
         {download.isPending ? "Verifying…" : "Download"}
       </SecondaryButton>
       {result?.kind === "verified" && (
-        <p className="flex items-center gap-1.5 text-[13px] text-good"><span className="size-1.5 rounded-full bg-good" aria-hidden />Verified, SHA-256 matches</p>
+        <p className="text-[13px] text-good">Verified, SHA-256 matches</p>
       )}
       {result?.kind === "started" && (
         <p className="max-w-xs text-[13px] text-muted sm:text-right">Download started. Expected SHA-256 <span className="font-mono">{result.sha256.slice(0, 12)}…</span></p>

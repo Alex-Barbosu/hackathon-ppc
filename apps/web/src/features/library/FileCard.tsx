@@ -11,7 +11,7 @@ import { RecordingLine } from "./RecordingLine";
 const STREAM_ABOVE_BYTES = 50 * 1024 * 1024;
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="min-w-0"><dt className="label text-[11px] text-faint">{label}</dt><dd className="mt-0.5 truncate text-sm">{children}</dd></div>;
+  return <div className="min-w-0"><dt className="caption text-muted">{label}</dt><dd className="mt-0.5 truncate text-sm">{children}</dd></div>;
 }
 
 export function FileCard({ file }: { file: FileMeta }) {

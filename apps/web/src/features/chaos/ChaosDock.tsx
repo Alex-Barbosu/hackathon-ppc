@@ -12,7 +12,7 @@ import { useChaosAction, useChaosState } from "./useChaos";
 type Tab = "controls" | "timeline";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="space-y-3 border-t-[0.8px] border-line px-6 py-5 first:border-0"><h3 className="label text-faint">{title}</h3>{children}</section>;
+  return <section className="space-y-3 border-t-[0.8px] border-line px-6 py-5 first:border-0"><h3 className="caption text-muted">{title}</h3>{children}</section>;
 }
 
 // Admin only (the Shell renders it only for roles with chaos access; chaos-control enforces it too).

@@ -26,7 +26,7 @@ export function DropZone({ file, onFile, disabled }: DropZoneProps) {
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={drop}
-      className={`w-full rounded-widget border-[0.8px] border-dashed px-6 py-14 text-left transition-[border-color,background-color,transform] duration-300 focus-visible:outline-2 focus-visible:outline-accent ${
+      className={`w-full rounded-widget border-[0.8px] border-dashed px-6 py-10 text-left transition-[border-color,background-color,transform] duration-300 focus-visible:outline-2 focus-visible:outline-accent ${
         over ? "scale-[1.01] border-white bg-accent-soft" : "border-white/20 bg-panel hover:border-white/50"
       }`}
     >
@@ -34,12 +34,12 @@ export function DropZone({ file, onFile, disabled }: DropZoneProps) {
       {file ? (
         <>
           <p className="font-display text-2xl break-all">{file.name}</p>
-          <p className="mt-1 text-sm text-muted tabular-nums">{formatBytes(file.size)} · click to choose another</p>
+          <p className="mt-1 text-sm text-muted tabular-nums">{formatBytes(file.size)}, click to choose another</p>
         </>
       ) : (
         <>
           <p className="font-display text-2xl">Drop a file <em>here</em></p>
-          <p className="mt-1 text-sm text-muted">or click to browse. Nothing leaves your browser until you press Upload.</p>
+          <p className="mt-1 text-sm text-muted">or click to browse.</p>
         </>
       )}
     </button>

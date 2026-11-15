@@ -16,10 +16,7 @@ export function CategoryPicker({ value, allowed, onChange }: CategoryPickerProps
           <button key={c.id} type="button" role="radio" aria-checked={active} onClick={() => onChange(c.id)}
             className={`rounded-lg border-[0.8px] px-4 py-3 text-left transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
               active ? "border-white bg-white/8" : "border-line bg-panel hover:border-white/30"}`}>
-            <span className="flex items-center justify-between gap-3 text-[15px] font-normal">
-              {c.label}
-              <span aria-hidden className={`size-2 rounded-full border ${active ? "border-white bg-white" : "border-white/30"}`} />
-            </span>
+            <span className="block text-[15px] font-normal">{c.label}</span>
             <span className="mt-0.5 block text-[13px] text-faint">{c.hint}</span>
           </button>
         );

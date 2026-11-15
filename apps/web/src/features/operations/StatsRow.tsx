@@ -27,7 +27,7 @@ export function StatsRow() {
     <Stagger as="dl" className="grid grid-cols-2 gap-y-8 lg:grid-cols-4 lg:divide-x-[0.8px] lg:divide-line">
       {stats.map((s) => (
         <StaggerItem key={s.label} className="flex flex-col-reverse px-2 text-center lg:px-6">
-          <dt className="label mt-3 text-faint">{s.label}</dt>
+          <dt className="caption mt-3 text-muted">{s.label}</dt>
           <dd className={`font-display text-[48px] leading-none transition-colors duration-500 sm:text-[64px] ${s.bad ? "text-bad" : ""}`}><Ticker value={s.value} format={s.format} /></dd>
         </StaggerItem>
       ))}

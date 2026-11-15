@@ -18,9 +18,7 @@ export function LibraryPage() {
   const { data, isLoading, isError, refetch } = useFileSearch();
   return (
     <>
-      <PageHero label="Library" title="Library">
-        Search stored files. Every download is re-hashed against its SHA-256 as it streams.
-      </PageHero>
+      <PageHero title="Library" />
       <div className={`${CARD} mt-6 p-5 sm:p-6`}><SearchBar /></div>
       <div className="mt-6">
         {isLoading && <Skeleton />}

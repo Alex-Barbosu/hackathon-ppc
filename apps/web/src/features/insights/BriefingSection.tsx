@@ -2,12 +2,11 @@ import { RichText } from "./RichText";
 
 interface Metric { label?: string; value?: string }
 
-export function BriefingSection({ index, title, body, metrics }: { index: number; title: string; body: string; metrics: Metric[] }) {
+export function BriefingSection({ title, body, metrics }: { title: string; body: string; metrics: Metric[] }) {
   return (
     <section className="grid gap-6 py-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-12">
       <div>
-        <p className="label text-faint">0{index}</p>
-        <h3 className="mt-3 font-display text-[28px] leading-[1.15] text-white/90">{title}</h3>
+        <h3 className="font-display text-[28px] leading-[1.15] text-white/90">{title}</h3>
       </div>
       <div className="space-y-6">
         <RichText text={body} />

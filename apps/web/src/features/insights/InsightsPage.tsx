@@ -3,20 +3,19 @@ import { AnomalyList } from "./AnomalyList";
 import { BriefingCard } from "./BriefingCard";
 import { OutageMap } from "./OutageMap";
 
+// The map leads: it is the screen's one picture of the grid, and the briefing below explains it.
 export function InsightsPage() {
   return (
     <div className="space-y-8">
-      <PageHero label="Insights" title="Insights">
-        Storage fit per category, peak against normal, and what the grid data shows.
-      </PageHero>
-      <BriefingCard />
+      <PageHero title="Insights" />
+      <OutageMap />
       <section className="space-y-4">
-        <SectionTitle sub="Outage recordings by county. Darker counties and larger dots carry more. Select a county for its stations.">Outage hotspots</SectionTitle>
-        <OutageMap />
+        <SectionTitle>Meter anomalies</SectionTitle>
+        <AnomalyList />
       </section>
       <section className="space-y-4">
-        <SectionTitle sub="Each meter judged against its own history: drops, spikes, stuck readings and voltage sags.">Meter anomalies</SectionTitle>
-        <AnomalyList />
+        <SectionTitle>Briefing</SectionTitle>
+        <BriefingCard />
       </section>
     </div>
   );
