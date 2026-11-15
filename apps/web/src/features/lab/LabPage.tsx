@@ -1,6 +1,7 @@
 import { PageHero, SectionTitle } from "../../components/PageHero";
 import { CARD } from "../../components/ui";
 import { ApplyPolicy } from "./ApplyPolicy";
+import { LabExplainer } from "./LabExplainer";
 import { Matrix } from "./Matrix";
 import { RecoCard } from "./RecoCard";
 import { RunBar } from "./RunBar";
@@ -13,8 +14,9 @@ export function LabPage() {
   return (
     <div className="space-y-16 sm:space-y-24">
       <PageHero label="Storage Lab" title={<>Let the numbers <em>choose</em>.</>}>
-        Uploads real files to each storage with the policy bypassed, downloads them back and checks the SHA-256, then recommends one storage per category with the numbers it used.
+        A benchmark that answers one question from the brief: which storage fits each category, and why. It tests every storage with real files, then recommends one per category and shows its working.
       </PageHero>
+      <LabExplainer />
       <section className="space-y-6">
         <div className={`${CARD} p-5 sm:p-8`}><RunBar run={run} /></div>
         {isError && <p role="alert" className="text-sm text-bad">Storage Lab is unreachable. Nothing is lost; try again in a moment.</p>}

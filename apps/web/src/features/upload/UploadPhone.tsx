@@ -1,11 +1,12 @@
 import { PhoneFrame } from "../../components/phone/PhoneFrame";
 import { PhoneScreen, type PhoneRow } from "../../components/phone/PhoneScreen";
 import { Chip } from "../../components/ui";
-import { REGIONS, UPLOAD_CATEGORIES, type FileReceipt } from "../../lib/domain";
+import { REGIONS, UPLOAD_CATEGORIES, type FileReceipt, type UploadCategory } from "../../lib/domain";
 import { formatBytes, truncateMiddle } from "../../lib/format";
 import { useUploadForm } from "./useUploadForm";
 
 interface UploadPhoneProps {
+  category: UploadCategory;
   file: File | null;
   receipt: FileReceipt | null;
   pending: boolean;
@@ -15,8 +16,8 @@ interface UploadPhoneProps {
 const STORAGE: Record<string, string> = { db: "PostgreSQL", s3: "S3", ftp: "FTPS", spool: "Spool" };
 
 // The handset mirrors the form live, so the 3D device shows this upload, not stock art.
-export function UploadPhone({ file, receipt, pending, percent }: UploadPhoneProps) {
-  const { category, region, county } = useUploadForm();
+export function UploadPhone({ category, file, receipt, pending, percent }: UploadPhoneProps) {
+  const { region, county } = useUploadForm();
   const place = REGIONS.find((r) => r.id === region)?.label ?? region;
   const label = UPLOAD_CATEGORIES.find((c) => c.id === category)?.label ?? category;
   const rows: PhoneRow[] = receipt

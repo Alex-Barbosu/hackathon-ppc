@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { FIELD, PrimaryButton } from "../../components/ui";
 import { GridMark } from "../../components/phone/PhoneScreen";
-import { TexturePanel, Scrim } from "../../components/Texture";
+import { TexturePanel } from "../../components/Texture";
 import { LoginPhone } from "./LoginPhone";
 import { RolePicker } from "./RolePicker";
 import { useLogin } from "./useLogin";
@@ -17,37 +17,33 @@ export function LoginPage() {
   };
 
   return (
-    // One screen, no scroll: the frame is exactly the viewport and the phone scales with its height.
-    <main className="h-dvh p-3 sm:p-4">
-      <TexturePanel texture="lines-sky" className="flex h-full flex-col overflow-y-auto px-5 py-5 sm:px-10 lg:overflow-hidden">
+    // A conventional split sign-in: the form on plain ground, the picture beside it. Exactly one viewport tall.
+    <main className="grid h-dvh overflow-y-auto p-3 lg:grid-cols-[minmax(420px,1fr)_1.25fr] lg:gap-3 lg:overflow-hidden">
+      <section className="flex flex-col px-4 py-4 sm:px-10">
         <p className="flex items-center gap-2.5 text-base font-medium"><GridMark /> FileGrid</p>
-        <div className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-10 py-6 lg:grid-cols-[1fr_auto]">
-          <div className="max-w-lg">
-            <p className="label text-white/75">Rețele Electrice România</p>
-            <h1 className="mt-4 font-display text-[44px] leading-[1.05] text-balance sm:text-[64px] xl:text-[80px]">Every file, <em>proven</em>.</h1>
-            <p className="mt-4 text-base text-white/80">Four categories, three storages, one door.</p>
-            {/* Near-opaque so the pylons behind never cross the fields. */}
-            <Scrim texture="lines-sky" className="mt-8 !bg-[rgb(4_14_26/0.82)] p-5 backdrop-blur-md sm:p-6">
-              <form onSubmit={submit} className="space-y-4">
-                <RolePicker value={username} onPick={setUsername} />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="label mb-2 block text-white/75">Username</span>
-                    <input className={FIELD} autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
-                  </label>
-                  <label className="block">
-                    <span className="label mb-2 block text-white/75">Password</span>
-                    <input className={FIELD} type="password" autoComplete="current-password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} />
-                  </label>
-                </div>
-                {login.isError && <p role="alert" className="rounded-lg bg-black/40 px-3 py-2 text-sm text-bad">{login.error.message}</p>}
-                <PrimaryButton type="submit" className="w-full" disabled={login.isPending}>{login.isPending ? "Signing in…" : "Sign in"}</PrimaryButton>
-                <p className="text-[13px] text-white/70">Every role shares the demo password set as DEMO_PASSWORD in .env.</p>
-              </form>
-            </Scrim>
-          </div>
-          <LoginPhone />
+        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-8 [@media(max-height:760px)]:py-3">
+          <h1 className="font-display text-[40px] leading-[1.1] [@media(max-height:760px)]:text-[32px]">Sign <em>in</em></h1>
+          <p className="mt-2 text-[15px] text-muted">Choose your role. It decides which files and screens you see.</p>
+          <form onSubmit={submit} className="mt-8 space-y-5 [@media(max-height:760px)]:mt-4 [@media(max-height:760px)]:space-y-3">
+            <RolePicker value={username} onPick={setUsername} />
+            <label className="block">
+              <span className="label mb-2 block text-faint">Username</span>
+              <input className={FIELD} autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="label mb-2 block text-faint">Password</span>
+              <input className={FIELD} type="password" autoComplete="current-password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </label>
+            {login.isError && <p role="alert" className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">{login.error.message}</p>}
+            <PrimaryButton type="submit" className="w-full" disabled={login.isPending}>{login.isPending ? "Signing in…" : "Sign in"}</PrimaryButton>
+          </form>
+          <p className="mt-6 text-[13px] text-faint [@media(max-height:760px)]:hidden">Demo accounts share one password, set as DEMO_PASSWORD in .env.</p>
         </div>
+        <p className="text-[13px] text-faint">Rețele Electrice România · PPC group</p>
+      </section>
+      <TexturePanel texture="lines-sky" className="hidden flex-col items-center justify-center gap-10 overflow-hidden p-10 lg:flex [@media(max-height:760px)]:gap-4 [@media(max-height:760px)]:p-6">
+        <h2 className="max-w-md text-center font-display text-[56px] leading-[1.05] xl:text-[72px] [@media(max-height:760px)]:text-[44px]">Every file, <em>proven</em>.</h2>
+        <LoginPhone />
       </TexturePanel>
     </main>
   );

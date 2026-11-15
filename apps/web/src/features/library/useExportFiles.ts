@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { FileMeta } from "../../lib/domain";
 import { downloadCsv, stamp, toCsv, type Column } from "../../lib/csv";
-import { searchQuery, useFilters } from "./useFileSearch";
+import { searchQuery, useScopedFilters } from "./useFileSearch";
 
 // Enough for every demo; past this a spreadsheet is the wrong tool and the cap is said out loud.
 const MAX_ROWS = 2000;
@@ -24,7 +24,7 @@ const COLUMNS: Column<FileMeta>[] = [
 
 // Exports every page of the current search, not only the 20 rows on screen.
 export function useExportFiles() {
-  const filters = useFilters((s) => s.filters);
+  const filters = useScopedFilters();
   return useMutation({
     mutationFn: async () => {
       const rows: FileMeta[] = [];

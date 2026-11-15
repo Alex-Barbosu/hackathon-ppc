@@ -6,6 +6,7 @@ import { Shell } from "./layout/Shell";
 import { InsightsPage } from "./features/insights/InsightsPage";
 import { LabPage } from "./features/lab/LabPage";
 import { OperationsPage } from "./features/operations/OperationsPage";
+import { accessFor, type Page } from "./lib/permissions";
 import { useSession } from "./state/session";
 
 const root = createRootRoute({ component: Outlet });
@@ -20,12 +21,16 @@ const app = createRoute({
     if (!useSession.getState().session) throw redirect({ to: "/login" });
   },
 });
+// A typed URL to a screen the role does not have lands on Upload, which every role has.
+const only = (page: Page) => () => {
+  if (!accessFor(useSession.getState().session?.role).pages.includes(page)) throw redirect({ to: "/" });
+};
 const upload = createRoute({ getParentRoute: () => app, path: "/", component: UploadPage });
-const library = createRoute({ getParentRoute: () => app, path: "/library", component: LibraryPage });
-const operations = createRoute({ getParentRoute: () => app, path: "/operations", component: OperationsPage });
-const insights = createRoute({ getParentRoute: () => app, path: "/insights", component: InsightsPage });
-const lab = createRoute({ getParentRoute: () => app, path: "/lab", component: LabPage });
-// The chaos controls live in the Operations dock so the effect is visible next to the cause.
+const library = createRoute({ getParentRoute: () => app, path: "/library", component: LibraryPage, beforeLoad: only("/library") });
+const operations = createRoute({ getParentRoute: () => app, path: "/operations", component: OperationsPage, beforeLoad: only("/operations") });
+const insights = createRoute({ getParentRoute: () => app, path: "/insights", component: InsightsPage, beforeLoad: only("/insights") });
+const lab = createRoute({ getParentRoute: () => app, path: "/lab", component: LabPage, beforeLoad: only("/lab") });
+// Old link: the chaos controls now open from the nav bar on any screen.
 const chaos = createRoute({
   getParentRoute: () => app,
   path: "/chaos",

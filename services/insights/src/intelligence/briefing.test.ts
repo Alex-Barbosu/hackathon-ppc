@@ -8,13 +8,13 @@ const lab = { latestRun: async () => ({ recommendation: [{ category: "document",
 const deps = (over: Partial<BriefingDeps> = {}): BriefingDeps => ({
   db: fakeDb(), prom: fakeProm([], [{ labels: { category: "outage" }, last: 3, min: 0, max: 5, avg: 1.5, points: 120 }]), lab, llm: null, model: "claude-haiku-5-5", now: () => NOW, ...over,
 });
-const good = JSON.stringify({ summary: "Keep documents on FTPS.", sections: TITLES.map((t) => ({ title: t, body: "Body.", metrics: [{ label: "documents write p95", value: "189 ms" }, { label: "invented", value: "999" }] })) });
+const good = JSON.stringify({ summary: "Keep documents on FTPS.", sections: TITLES.map((t) => ({ title: t, body: "Body.", metrics: [{ label: "documents: 95% saved within", value: "189 ms" }, { label: "invented", value: "999" }] })) });
 
 test("facts come in three groups with the exact section titles, from measured data", async () => {
   const groups = await gatherFacts(deps(), FROM, TO);
   assert.deepEqual(groups.map((g) => g.title), [...TITLES]);
   assert.ok(groups[0]!.facts.some((f) => f.label === "documents: recommended storage" && f.value === "FTPS"));
-  assert.ok(groups[1]!.facts.some((f) => f.label === "outage records writes per second, peak" && f.value === "5.0"));
+  assert.ok(groups[1]!.facts.some((f) => f.label === "outage records: files saved per second, busiest minute" && f.value === "5.0"));
   assert.match(groups[2]!.notes.join(" "), /No meter anomalies/);
 });
 
@@ -28,7 +28,7 @@ test("when sources are down the facts still build, and say what is missing", asy
 test("metrics the model invented are dropped, exact copies are kept", async () => {
   const groups = await gatherFacts(deps(), FROM, TO);
   const b = groundBriefing(JSON.parse(good), groups, NOW)!;
-  assert.deepEqual(b.sections[0]?.metrics, [{ label: "documents write p95", value: "189 ms" }]);
+  assert.deepEqual(b.sections[0]?.metrics, [{ label: "documents: 95% saved within", value: "189 ms" }]);
   assert.equal(groundBriefing({ nope: 1 }, groups, NOW), null);
 });
 

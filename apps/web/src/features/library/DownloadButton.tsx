@@ -23,7 +23,7 @@ export function DownloadButton({ id, name, streamed }: DownloadButtonProps) {
       )}
       {result?.kind === "integrity-failed" && (
         <p role="alert" className="max-w-xs text-[13px] text-bad sm:text-right">
-          Integrity failed. The stored bytes differ from what was uploaded, so nothing was downloaded. Ask an admin to restore from the fallback copy.
+          Integrity failed. The stored bytes differ from what was uploaded, so nothing was downloaded. The failure is recorded and raises an integrity alert for the operations team.
         </p>
       )}
       {download.isError && <p role="alert" className="text-[13px] text-bad">{download.error.message}</p>}

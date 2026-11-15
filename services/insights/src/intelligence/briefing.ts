@@ -13,13 +13,18 @@ export interface Briefing {
 
 export const TITLES = ["Which storage fits each category and why", "Peak versus normal", "What the grid data says"] as const;
 const CATS = ["meter", "outage", "document", "video"] as const;
-const CAT_NAME: Record<string, string> = { meter: "meters", outage: "outage records", document: "documents", video: "video" };
+const CAT_NAME: Record<string, string> = { meter: "meter readings", outage: "outage records", document: "documents", video: "drone video" };
 const STORE_NAME: Record<string, string> = { db: "PostgreSQL", s3: "S3", ftp: "FTPS" };
 const TTL_MS = 30 * 60_000;
+// Bumped whenever the prompt or labels change, so a cached briefing in the old wording is not served again.
+const FORMAT = "v2";
+const MAX_METRICS = 4;
 const MAX_MINUTES = 1440;
 
 const f1 = (n: number) => (Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(1));
 const ms = (s: number) => `${f1(s * 1000)} ms`;
+/** Runs saved before the Lab switched to plain words still say "write p95"; a manager reads "95% saved within" faster. */
+export const plainLabel = (l: string) => l.replace(/\bwrite p95\b/g, "95% saved within").replace(/\bread p95\b/g, "95% read within").replace(/\bthroughput\b/g, "transfer speed");
 
 export interface LabLike { latestRun(): Promise<{ recommendation?: Array<{ category: string; storage: string; reason: string; evidence?: Fact[] }> } | null> }
 export interface BriefingDeps { db: Db; prom: PromLike; lab: LabLike; llm: Llm | null; model: string; now?: () => Date }
@@ -34,12 +39,12 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
   const run = await safe(d.lab.latestRun(), null);
   for (const r of run?.recommendation ?? []) {
     storage.facts.push({ label: `${CAT_NAME[r.category] ?? r.category}: recommended storage`, value: STORE_NAME[r.storage] ?? r.storage });
-    storage.notes.push(`${CAT_NAME[r.category] ?? r.category}: ${r.reason}`);
-    for (const e of r.evidence ?? []) storage.facts.push({ label: `${CAT_NAME[r.category] ?? r.category} ${e.label}`, value: e.value });
+    storage.notes.push(`${CAT_NAME[r.category] ?? r.category}: ${plainLabel(r.reason)}`);
+    for (const e of r.evidence ?? []) storage.facts.push({ label: `${CAT_NAME[r.category] ?? r.category}: ${plainLabel(e.label)}`, value: e.value });
   }
   if (!run) storage.notes.push("No Storage Lab benchmark has been run yet.");
 
-  const traffic: FactGroup = { title: TITLES[1], facts: [], notes: [`Window: ${period}. Normal is the average over the window, peak is the highest minute.`] };
+  const traffic: FactGroup = { title: TITLES[1], facts: [], notes: [`Window: ${period}. "Typical" is the average over the window, "busiest minute" is the highest single minute.`] };
   const [ops, p95, rate] = await Promise.all([
     safe(d.prom.range('sum by (category) (rate(filegrid_ops_total{op="write"}[1m]))', minutes), []),
     safe(d.prom.range('histogram_quantile(0.95, sum by (le, category) (rate(filegrid_op_duration_seconds_bucket{op="write"}[1m])))', minutes), []),
@@ -48,10 +53,10 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
   for (const c of CATS) {
     const o = ops.find((s) => s.labels.category === c);
     const p = p95.find((s) => s.labels.category === c);
-    if (o) traffic.facts.push({ label: `${CAT_NAME[c]} writes per second, normal`, value: f1(o.avg) }, { label: `${CAT_NAME[c]} writes per second, peak`, value: f1(o.max) });
-    if (p) traffic.facts.push({ label: `${CAT_NAME[c]} write p95, normal`, value: ms(p.avg) }, { label: `${CAT_NAME[c]} write p95, peak`, value: ms(p.max) });
+    if (o) traffic.facts.push({ label: `${CAT_NAME[c]}: files saved per second, typical`, value: f1(o.avg) }, { label: `${CAT_NAME[c]}: files saved per second, busiest minute`, value: f1(o.max) });
+    if (p) traffic.facts.push({ label: `${CAT_NAME[c]}: 95% saved within, typical`, value: ms(p.avg) }, { label: `${CAT_NAME[c]}: 95% saved within, busiest minute`, value: ms(p.max) });
   }
-  if (rate[0]) traffic.facts.push({ label: "meter simulator rate, peak (readings per second)", value: f1(rate[0].max) });
+  if (rate[0]) traffic.facts.push({ label: "meters sending, busiest minute (readings per second)", value: f1(rate[0].max) });
   if (!traffic.facts.length) traffic.notes.push("Prometheus returned no traffic for this window.");
 
   const grid: FactGroup = { title: TITLES[2], facts: [], notes: [] };
@@ -78,19 +83,29 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
 export function deterministicBriefing(groups: FactGroup[], now: Date): Briefing {
   return {
     generatedAt: now.toISOString(),
-    summary: "Written directly from the measurements, without AI. The numbers below are exact; the explanations are the Storage Lab's own reasons.",
+    summary: "Written directly from the measurements, without AI. The numbers are exact.",
     sections: groups.map((g) => ({
       title: g.title,
-      body: g.notes.length ? g.notes.join("\n\n") : "No data for this section yet.",
-      metrics: g.facts.slice(0, 8),
+      body: g.notes.length ? g.notes.map((n) => `- ${n}`).join("\n") : "No data for this section yet.",
+      metrics: g.facts.slice(0, MAX_METRICS),
     })),
   };
 }
 
-export const BRIEFING_SYSTEM = `You write the written briefing for Section 5 of a hackathon submission, for a decision maker at an electricity distributor (Rețele Electrice România).
-You are given measured facts in three groups. Write exactly three sections with the titles given, plus a summary of at most three sentences that leads with the decision a manager should take.
-Rules: use only the facts; copy every number exactly as written; never estimate or round differently. Each section body is at most four plain sentences and ends, where the facts allow, with a recommendation.
-In "metrics", list the facts you relied on, copying each fact's label and value exactly. Say clearly when data is missing instead of guessing. No file names, no personal data, no markdown.`;
+export const BRIEFING_SYSTEM = `You write a one-page briefing for a manager at an electricity distributor (Rețele Electrice România). They are not an engineer and will read it in under a minute.
+You are given measured facts in three groups. Write exactly three sections with the titles given, plus a summary.
+
+Summary: one sentence, at most 25 words, that states the single most important finding or decision. No numbers unless one number is the whole point.
+
+Each section body: two to four bullet lines. Each line starts with "- " and is one short plain sentence.
+- Say what the number means for the business, not how it was measured: "documents are saved in under 0.2 seconds" rather than "write p95 189 ms".
+- Put the one key number or storage name of a line in **bold**. No other formatting.
+- The last line is the recommendation, starting with "**Do:**", when the facts support one.
+- Avoid jargon: never write p95, p99, percentile, latency, throughput, histogram, idempotency or circuit. Say "95% of files are saved within", "speed", "files per second", "duplicates".
+- Name storages as PostgreSQL, S3 and FTPS.
+
+Rules: use only the facts. Copy numbers exactly (you may write 189 ms as 189 ms or as 0.19 seconds, nothing else). If a group has no data, write one line that says what is missing and how to get it, for example "run the Storage Lab". No file names, no personal data.
+In "metrics", list at most four facts that best support the section, copying each fact's label and value exactly.`;
 
 const SCHEMA = {
   type: "object",
@@ -118,7 +133,7 @@ export function groundBriefing(raw: unknown, groups: FactGroup[], now: Date): Br
   if (typeof b?.summary !== "string" || !Array.isArray(b.sections)) return null;
   const sections = (b.sections as Array<{ title?: unknown; body?: unknown; metrics?: unknown }>).flatMap((s) =>
     typeof s.title === "string" && typeof s.body === "string"
-      ? [{ title: s.title, body: s.body, metrics: ((Array.isArray(s.metrics) ? s.metrics : []) as Fact[]).filter((m) => known.has(`${m.label}|${m.value}`)) }]
+      ? [{ title: s.title, body: s.body, metrics: ((Array.isArray(s.metrics) ? s.metrics : []) as Fact[]).filter((m) => known.has(`${m.label}|${m.value}`)).slice(0, MAX_METRICS) }]
       : [],
   );
   return sections.length ? { generatedAt: now.toISOString(), summary: b.summary.trim(), sections } : null;
@@ -145,8 +160,8 @@ export class BriefingService {
   private now() { return this.d.now?.() ?? new Date(); }
 
   private async cached(key: string | null): Promise<{ body: Briefing; at: Date; ai: boolean } | null> {
-    const sql = key ? "SELECT body, generated_at, ai FROM insights.briefings WHERE key = $1" : "SELECT body, generated_at, ai FROM insights.briefings WHERE ai ORDER BY generated_at DESC LIMIT 1";
-    const { rows } = await this.d.db.query(sql, key ? [key] : []);
+    const sql = key ? "SELECT body, generated_at, ai FROM insights.briefings WHERE key = $1" : "SELECT body, generated_at, ai FROM insights.briefings WHERE ai AND key LIKE $1 ORDER BY generated_at DESC LIMIT 1";
+    const { rows } = await this.d.db.query(sql, [key ?? `${FORMAT}-%`]);
     const r = rows[0];
     return r ? { body: r.body as Briefing, at: new Date(iso(r.generated_at)), ai: r.ai === true } : null;
   }
@@ -158,7 +173,7 @@ export class BriefingService {
   }
 
   get(from: Date, to: Date): Promise<Briefing> {
-    const key = `${bucket(from)}-${bucket(to)}`;
+    const key = `${FORMAT}-${bucket(from)}-${bucket(to)}`;
     const running = this.inflight.get(key);
     if (running) return running;
     const p = this.build(key, from, to).finally(() => this.inflight.delete(key));

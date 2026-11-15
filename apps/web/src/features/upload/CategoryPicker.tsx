@@ -3,16 +3,17 @@ import { UPLOAD_CATEGORIES, type UploadCategory } from "../../lib/domain";
 
 interface CategoryPickerProps {
   value: UploadCategory;
+  allowed: readonly UploadCategory[];
   onChange: (value: UploadCategory) => void;
 }
 
 // Each category gets its own landscape, like Origin's image cards, so the choice reads at a glance.
 const TEX: Record<UploadCategory, TextureName> = { outage: "amber", document: "sky", video: "forest" };
 
-export function CategoryPicker({ value, onChange }: CategoryPickerProps) {
+export function CategoryPicker({ value, allowed, onChange }: CategoryPickerProps) {
   return (
-    <div role="radiogroup" aria-label="Category" className="grid gap-3 sm:grid-cols-3">
-      {UPLOAD_CATEGORIES.map((c) => {
+    <div role="radiogroup" aria-label="Category" className={`grid gap-3 ${allowed.length > 1 ? "sm:grid-cols-3" : "sm:max-w-sm"}`}>
+      {UPLOAD_CATEGORIES.filter((c) => allowed.includes(c.id)).map((c) => {
         const active = c.id === value;
         return (
           <button

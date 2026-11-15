@@ -8,10 +8,10 @@ const failed: Pick<LabCell, "category" | "storage" | "write" | "errors" | "error
   category: "video", storage: "db", errors: 2, errorSamples: ["upload:TOO_LARGE"],
 };
 
-test("TOO_LARGE names the cell's own size and the S3 + tus way out", () => {
+test("TOO_LARGE names the cell's own size and why video lands on S3", () => {
   assert.equal(
     errorText("upload:TOO_LARGE", { sizeBytes: 100 * MB }),
-    "Rejected: 100 MB is over this storage's upload limit. Large files need a streaming, resumable path (S3 + tus).",
+    "100 MB is over the 64 MB limit for ordinary uploads. Video always goes through the resumable upload, which writes to S3.",
   );
 });
 

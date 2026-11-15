@@ -1,6 +1,7 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { create } from "zustand";
 import { api } from "../../api/client";
+import { useAccess } from "../../state/useAccess";
 import type { Category, County, Region } from "../../lib/domain";
 
 export interface Filters {
@@ -37,6 +38,13 @@ const endOfDay = (d: string) => (d ? `${d}T23:59:59Z` : undefined);
 
 export const PAGE_SIZE = 20;
 
+/** The filters as sent: a role with one category (field, dispatch, connections) only ever searches that one. */
+export function useScopedFilters(): Filters {
+  const filters = useFilters((s) => s.filters);
+  const { library } = useAccess();
+  return library.length === 1 ? { ...filters, category: library[0]! } : filters;
+}
+
 export function searchQuery(filters: Filters, page: number, size: number) {
   return {
     category: filters.category || undefined,
@@ -51,7 +59,7 @@ export function searchQuery(filters: Filters, page: number, size: number) {
 }
 
 export function useFileSearch() {
-  const filters = useFilters((s) => s.filters);
+  const filters = useScopedFilters();
   const page = useFilters((s) => s.page);
   return useQuery({
     queryKey: ["files", filters, page],
