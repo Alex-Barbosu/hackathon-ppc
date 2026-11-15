@@ -31,6 +31,8 @@ export const FLIGHT = {
   line: "LEA 110 kV Brazi Vest – Băicoi",
   section: "T-112 to T-118",
   region: "Muntenia",
+  // A real stretch of open country between Brazi and Băicoi (Prahova), where 110 kV lines cross farmland.
+  site: { name: "Brazi – Băicoi, Prahova", lat: 44.9519, lon: 25.9283 },
   flown: "12 Nov 2026, 10:42",
   file: "insp-brazi-baicoi-t112-t118.mp4",
   durationSec: 42,
@@ -64,7 +66,7 @@ export const FINDINGS: Finding[] = [
   },
   {
     id: "F-05", kind: "insulator", severity: "review", confidence: 0.58, span: towerId(5),
-    detail: "Possible contamination on the upper string; image too oblique to confirm",
+    detail: "Lower string: possible contamination on the glass discs; image too oblique to confirm",
     anchor: { at: "attach", tower: 5, attach: 4, radius: 2.2 },
   },
 ];
