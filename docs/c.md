@@ -135,3 +135,24 @@ Code in `services/insights/src/intelligence`, migration `V302`, web in `features
 ### Requests to other zones
 - **Zone B:** add `NARRATOR_MODEL`, `ANALYST_MODEL` and `AI_MAX_CALLS_PER_HOUR` to `.env.example` (compose already defaults them).
 - **Zone A:** `meter_intervals` is still empty (anomalies need it). County on outage uploads: done in the zone A county PR.
+
+## Pager (round 6)
+
+Only alerts that put a "never lose data" guarantee at risk wake a person; everything else stays on the feed.
+Rules are in `contracts/alerts.md` ("Paging"), code in `services/insights/src/intelligence/pager.ts`.
+
+- **platform → admin on-call:** `StorageDown`, `IntegrityFailure`, `MeterReadingLossRisk`, `DocumentProtectionFailure`
+  after they have fired for `PAGER_HOLD_SEC` (60 s). The push carries the alert summary and the Haiku narration.
+- **grid → that region's dispatch on-call:** ≥ `PAGER_GRID_THRESHOLD` (5) outage records from one county in 15 min,
+  read from `public.files` (view `insights.v_outage_bursts`). Closes after 15 quiet minutes, then can page again.
+- **Delivery:** ntfy. Topics `<NTFY_TOPIC>-admin`, `<NTFY_TOPIC>-dispatch-{muntenia,banat,dobrogea}`. The
+  Acknowledge button posts a one-time token to `<NTFY_TOPIC>-ack`; insights listens there, so the phone never
+  has to reach the laptop. Without `NTFY_TOPIC` pages still show on Operations ("In app only").
+- **UI:** Operations → Pager panel (admin: both routes, dispatch: grid only; enforced by insights, not just the UI).
+
+### Demo setup (2 minutes)
+1. Phone: install the ntfy app, subscribe to `<topic>-admin` and `<topic>-dispatch-dobrogea` on ntfy.sh.
+2. `.env`: `NTFY_TOPIC=filegrid-<long random>` (e.g. `openssl rand -hex 8`), optionally `PAGER_HOLD_SEC=20` for a
+   faster stage beat and `FILEGRID_PUBLIC_URL=https://<laptop LAN IP>`. Then `make c-insights`.
+3. Chaos → stop S3. ~60 s later the admin phone buzzes; tap Acknowledge and Operations shows "acknowledged from the phone".
+4. Upload 5 outage records for Constanța within 15 min: the Dobrogea dispatch phone buzzes.

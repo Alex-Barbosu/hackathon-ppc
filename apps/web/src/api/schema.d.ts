@@ -467,6 +467,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/insights/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pages sent to an on-call person, newest first
+         * @description A page is a critical alert that woke someone up. Two routes: `platform` (a storage down for over a
+         *     minute, integrity failure, meter readings at risk; admin on-call) and `grid` (a burst of outage
+         *     records in one county; that region's dispatch on-call). Filtered by role: admin sees both,
+         *     dispatch sees `grid` only, every other role gets 403.
+         */
+        get: operations["listPages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/insights/pages/{pageId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge a page (stops it counting as unanswered)
+         * @description Admin may acknowledge any page, dispatch only `grid` pages. Acknowledging twice keeps the first.
+         */
+        post: operations["ackPage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/insights/anomalies": {
         parameters: {
             query?: never;
@@ -876,6 +919,48 @@ export interface components {
                 endsAt?: string;
                 fingerprint?: string;
             }[];
+        };
+        OnCallPage: {
+            id: string;
+            /** @enum {string} */
+            route: "platform" | "grid";
+            /**
+             * @description Who was paged
+             * @example Dispatch on-call, Dobrogea
+             */
+            onCall: string;
+            /** @example S3 storage is down */
+            title: string;
+            /** @description Up to three plain lines, metrics and counts only (never file names, contents or people). */
+            message: string;
+            /**
+             * @description Screen to open, relative to the gateway
+             * @example /operations
+             */
+            link?: string;
+            /**
+             * @description The alert behind a platform page
+             * @example StorageDown
+             */
+            alert?: string;
+            region?: components["schemas"]["Region"];
+            county?: components["schemas"]["County"];
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the alert resolved or the burst ended
+             */
+            resolvedAt?: string;
+            /**
+             * @description Push to the phone; off when no ntfy topic is configured
+             * @enum {string}
+             */
+            delivery: "sent" | "pending" | "failed" | "off";
+            /** Format: date-time */
+            ackedAt?: string;
+            /** @description Username, or "phone" when acknowledged from the notification */
+            ackedBy?: string;
         };
         Incident: {
             id: string;
@@ -1776,6 +1861,53 @@ export interface operations {
                     "application/json": components["schemas"]["Incident"][];
                 };
             };
+        };
+    };
+    listPages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnCallPage"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    ackPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnCallPage"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     listAnomalies: {

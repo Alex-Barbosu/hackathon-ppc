@@ -14,6 +14,15 @@ services:
       AI_MAX_CALLS_PER_HOUR: ${AI_MAX_CALLS_PER_HOUR:-120}
       FILEGRID_API_URL: http://filegrid-api:8080
       JWT_SECRET: ${JWT_SECRET:?run make up to generate .env}
+      # Pager (contracts/alerts.md "Paging"). Without NTFY_TOPIC pages still show in the web app, no push.
+      # Pick a long random topic: on the public ntfy.sh server the name is the only secret.
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      # What the phone opens from a page; set to this laptop's LAN address for the demo.
+      FILEGRID_PUBLIC_URL: ${FILEGRID_PUBLIC_URL:-https://localhost}
+      PAGER_HOLD_SEC: ${PAGER_HOLD_SEC:-60}
+      PAGER_GRID_THRESHOLD: ${PAGER_GRID_THRESHOLD:-5}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks: [app, data]
     depends_on:
