@@ -13,7 +13,6 @@ export function InspectionPlayer({ p, children }: { p: PlayerState; children: Re
         {children}
         <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-between bg-linear-to-b from-black/50 to-transparent p-3 pb-8 font-mono text-[11px] tabular-nums text-white/85 [text-shadow:0_1px_2px_rgb(0_0_0/0.7)]">
           <span>REC {timecode(p.sec)}</span>
-          <span className="hidden sm:inline">ALT 36 m AGL · GIMBAL −22°</span>
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden justify-between bg-linear-to-t from-black/50 to-transparent p-3 pt-8 sm:flex font-mono text-[11px] text-white/85 [text-shadow:0_1px_2px_rgb(0_0_0/0.7)]">
           <span>{FLIGHT.line}</span>

@@ -28,13 +28,13 @@ export const KIND_LABEL: Record<DefectKind, string> = {
 };
 
 export const FLIGHT = {
-  line: "LEA 110 kV Brazi Vest – Băicoi",
+  line: "LEA 110 kV Brazi Vest – Târgșoru",
   section: "T-112 to T-118",
   region: "Muntenia",
-  // A real stretch of open country between Brazi and Băicoi (Prahova), where 110 kV lines cross farmland.
-  site: { name: "Brazi – Băicoi, Prahova", lat: 44.9519, lon: 25.9283 },
+  // A real stretch of open farmland between Brazi and Târgșoru Vechi (Prahova), west of the Brazi substation.
+  site: { name: "Brazi – Târgșoru Vechi, Prahova", lat: 44.8865, lon: 25.942 },
   flown: "12 Nov 2026, 10:42",
-  file: "insp-brazi-baicoi-t112-t118.mp4",
+  file: "insp-brazi-targsoru-t112-t118.mp4",
   durationSec: 42,
   model: "linescan-v0.3 (in testing)",
 };
