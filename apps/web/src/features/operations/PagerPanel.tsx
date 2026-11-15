@@ -1,6 +1,7 @@
 import { AnimatePresence } from "framer-motion";
 import { useSession } from "../../state/session";
 import { PageItem } from "./PageItem";
+import { PagerDemo } from "./PagerDemo";
 import { useAckPage, usePages } from "./usePages";
 
 const RECENT_MS = 60 * 60_000;
@@ -22,11 +23,12 @@ export function PagerPanel() {
         <h3 className="label text-faint">Pager · {role === "admin" ? "platform and grid on-call" : "dispatch on-call"}</h3>
         {waiting > 0 && <span className="text-[13px] text-bad tabular-nums">{waiting} waiting for an answer</span>}
       </div>
+      {role === "admin" && <PagerDemo />}
       <ul className="border-t-[0.8px] border-line">
         {isPending && <li className="m-4 h-20 animate-pulse rounded-lg bg-white/6" />}
         {!isPending && !isError && shown.length === 0 && (
           <li className="px-5 py-4 text-[13px] text-muted">
-            Nobody has been paged in the last hour. A storage down for a minute, a corrupted file or five outage records from one county in 15 minutes will page the on-call here and on their phone.
+            Nobody has been paged in the last hour. A storage going down, a corrupted file or five outage records from one county in 15 minutes will page the on-call here and on their phone.
           </li>
         )}
         <AnimatePresence initial={false}>

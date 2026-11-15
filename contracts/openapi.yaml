@@ -569,6 +569,20 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /insights/pages/setup:
+    get:
+      operationId: getPagerSetup
+      tags: [insights]
+      summary: Whether phone push is on and which ntfy topics to subscribe (admin only; the topic is the secret)
+      responses:
+        "200":
+          description: Setup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PagerSetup" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /insights/pages/{pageId}/ack:
     post:
       operationId: ackPage
@@ -1006,11 +1020,27 @@ components:
         alert: { type: string, description: The alert behind a platform page, example: StorageDown }
         region: { $ref: "#/components/schemas/Region" }
         county: { $ref: "#/components/schemas/County" }
+        storage: { $ref: "#/components/schemas/Storage" }
         createdAt: { type: string, format: date-time }
         resolvedAt: { type: string, format: date-time, description: When the alert resolved or the burst ended }
         delivery: { type: string, enum: [sent, pending, failed, off], description: "Push to the phone; off when no ntfy topic is configured" }
         ackedAt: { type: string, format: date-time }
         ackedBy: { type: string, description: 'Username, or "phone" when acknowledged from the notification' }
+
+    PagerSetup:
+      type: object
+      required: [phone, holdSec, gridThreshold]
+      properties:
+        phone: { type: boolean, description: "false when NTFY_TOPIC is not set: pages show in the app only" }
+        server: { type: string, example: "https://ntfy.sh" }
+        topics:
+          type: object
+          required: [admin, dispatch]
+          properties:
+            admin: { type: string }
+            dispatch: { type: object, additionalProperties: { type: string }, description: Topic per region }
+        holdSec: { type: integer, description: Seconds an alert must fire before it pages }
+        gridThreshold: { type: integer, description: Outage records from one county in 15 min that page dispatch }
 
     Incident:
       type: object

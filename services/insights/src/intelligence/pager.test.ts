@@ -146,3 +146,45 @@ test("the pages API: token required, field refused, dispatch filtered to grid, u
   assert.equal((await a.inject({ method: "POST", url: "/insights/pages/99/ack", headers: auth("dispatch") })).statusCode, 404);
   assert.equal((await a.inject({ method: "POST", url: "/insights/pages/x/ack", headers: auth("admin") })).statusCode, 404);
 });
+
+test("a storage the health probe sees down pages the admin in the same tick, once", async () => {
+  const f = fakeFetch();
+  const opened: unknown[][] = [];
+  const db = fakeDb((sql, params) => {
+    if (sql.includes("INSERT INTO insights.pages")) { opened.push(params); return [{ ...PAGE, storage: "s3" }]; }
+    return [];
+  });
+  const pager = new Pager({ db, cfg: cfg(), fetch: f, storageHealth: async () => [{ storage: "db", up: true }, { storage: "s3", up: false }, { storage: "ftp", up: true }] });
+  await pager.tick();
+  assert.equal(opened.length, 1);
+  assert.deepEqual([opened[0]![0], opened[0]![1], opened[0]![4], opened[0]![13]], ["platform", "storage:s3", "S3 (SeaweedFS) is down", "s3"]);
+  assert.equal(f.sent.length, 1);
+  // Storages that answer close their open probe pages.
+  assert.deepEqual(db.calls.find((c) => c.sql.includes("open_key LIKE 'storage:%'"))?.params, [["db", "ftp"]]);
+});
+
+test("a storage already paged is not paged again, and a probe failure pages nobody", async () => {
+  const db = fakeDb((sql) => (sql.includes("WHERE storage = $1 AND resolved_at IS NULL") ? [{ "?column?": 1 }] : []));
+  await new Pager({ db, cfg: cfg(false), storageHealth: async () => [{ storage: "s3", up: false }] }).tick();
+  assert.ok(!db.calls.some((c) => c.sql.includes("INSERT INTO insights.pages")));
+  const db2 = fakeDb();
+  await new Pager({ db: db2, cfg: cfg(false), storageHealth: async () => { throw new Error("api down"); } }).tick();
+  assert.ok(!db2.calls.some((c) => c.sql.includes("INSERT INTO insights.pages")));
+});
+
+test("the StorageDown alert is skipped when the probe already paged that storage", async () => {
+  const db = fakeDb();
+  await new Pager({ db, cfg: cfg(false) }).tick();
+  assert.match(db.calls.find((c) => c.sql.includes("FROM insights.alerts a"))!.sql, /a\.alertname = 'StorageDown' AND EXISTS/);
+});
+
+test("setup is admin only and shows the topics to subscribe", async () => {
+  const a = Fastify();
+  registerPager(a, new Pager({ db: fakeDb(), cfg: cfg() }), SECRET);
+  const auth = (r: string) => ({ authorization: `Bearer ${token(r)}` });
+  assert.equal((await a.inject({ method: "GET", url: "/insights/pages/setup", headers: auth("dispatch") })).statusCode, 403);
+  const res = (await a.inject({ method: "GET", url: "/insights/pages/setup", headers: auth("admin") })).json() as { phone: boolean; topics: { admin: string; dispatch: Record<string, string> } };
+  assert.equal(res.phone, true);
+  assert.equal(res.topics.admin, `${NTFY.topic}-admin`);
+  assert.equal(res.topics.dispatch.dobrogea, `${NTFY.topic}-dispatch-dobrogea`);
+});
