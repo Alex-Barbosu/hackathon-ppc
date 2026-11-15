@@ -3,7 +3,10 @@
 // the metric (contracts/metrics.md) behind each panel.
 import { writeFileSync } from "node:fs";
 const ds = { type: "prometheus", uid: "prometheus" };
-const WAIT = "waiting for filegrid-api metrics";
+// Shown when a query is empty, which on a healthy stack only means "nothing of this kind
+// happened yet" (no fallback, no video upload). A wording that blames the API made a quiet
+// panel read as a broken one; a dead service shows as "down" under "Services running".
+const WAIT = "no traffic yet";
 let id = 0;
 const sel = 'category=~"$category", storage=~"$storage", op=~"$op"';
 const q = (expr, legendFormat = "", extra = {}) => ({ refId: String.fromCharCode(65 + (extra.i ?? 0)), datasource: ds, expr, legendFormat, ...extra, i: undefined });
@@ -37,7 +40,7 @@ panels.push({
   fieldConfig: { defaults: { mappings: [{ type: "value", options: { "0": { text: "down", color: "red" }, "1": { text: "up", color: "green" } } }], thresholds: { mode: "absolute", steps: [{ color: "red", value: null }, { color: "green", value: 1 }] } }, overrides: [] },
 });
 panels.push(stat("Handled per second", "filegrid_ops_total: all storage operations per second for the selected category, storage and op.", { x: 12, y, w: 4, h: 4 },
-  [q(`sum(rate(filegrid_ops_total{${sel}}[$__rate_interval]))`)], "ops", green, { decimals: 1 }));
+  [q(`sum(rate(filegrid_ops_total{${sel}}[$__rate_interval])) or vector(0)`)], "ops", green, { decimals: 1 }));
 panels.push(stat("Operations failing", "filegrid_ops_total: share with outcome=error. Fallback writes are not errors.", { x: 16, y, w: 4, h: 4 },
   [q(errRate("").replaceAll("sum by () ", "sum "))], "percentunit", [{ color: "green", value: null }, { color: "orange", value: 0.001 }, { color: "red", value: 0.01 }], { decimals: 2 }));
 panels.push(stat("Meter save time (p95)", "p95 of filegrid_op_duration_seconds for meter writes. Must stay flat during storms in other categories. MeterIngestLatencyHigh fires above 0.5 s.", { x: 20, y, w: 4, h: 4 },
@@ -55,10 +58,9 @@ panels.push(ts("Save time, meter vs outage (95 % within)",
     { matcher: { id: "byName", options: "outage records" }, properties: [{ id: "color", value: { mode: "fixed", fixedColor: "orange" } }] },
   ] }));
 panels.push(ts("Work waiting, per category",
-  "filegrid_queue_depth: items waiting in each category's queue (bulkhead). Until filegrid-api emits it, 'requests in progress' shows all requests being worked on across instances (http_server_requests_active_seconds_gcount, minus the scrape itself).",
+  "filegrid_queue_depth: items waiting in each category's queue (bulkhead). During an outage storm only the outage line rises.",
   { x: 8, y, w: 8, h: 8 },
-  [q("sum by (category) (filegrid_queue_depth)", "{{category}} waiting"),
-   q('label_replace(clamp_min(sum(http_server_requests_active_seconds_gcount{job="filegrid-api"}) - count(count by (instance) (http_server_requests_active_seconds_gcount{job="filegrid-api"})), 0), "category", "requests in progress (all)", "", "")', "{{category}}")],
+  [q("sum by (category) (filegrid_queue_depth)", "{{category}} waiting")],
   "short"));
 panels.push(ts("Arrivals per second, per category",
   "filegrid_ops_total writes per category: the storm shows as one line jumping tenfold while the others stay put.",
@@ -146,13 +148,13 @@ panels.push(stat("Meters sending (readings/s)", "meter_sim_rate: readings per se
 panels.push(stat("Readings waiting for confirmation", "meter_sim_sent_total − meter_sim_acked_total since the simulator started: in flight or waiting for retry. A growing number means readings are at risk (MeterReadingLossRisk).", s3(20, y),
   [q("sum(meter_sim_sent_total) - sum(meter_sim_acked_total)")], "short", [{ color: "green", value: null }, { color: "orange", value: 50 }, { color: "red", value: 500 }], { noValue: NOSIM, decimals: 0 }));
 panels.push(stat("Readings sent", "meter_sim_sent_total: unique readings generated in the selected time range.", s3(16, y + 3),
-  [q("sum(increase(meter_sim_sent_total[$__range]))")], "short", green, { noValue: NOSIM, decimals: 0, graphMode: "none" }));
+  [q("sum(increase(meter_sim_sent_total[$__range])) or vector(0)")], "short", green, { noValue: NOSIM, decimals: 0, graphMode: "none" }));
 panels.push(stat("Readings stored", "filegrid_meter_readings_total{result=accepted}. Must equal 'Readings sent' once the pipeline drains: never lost, never duplicated.", s3(20, y + 3),
-  [q('sum(increase(filegrid_meter_readings_total{result="accepted"}[$__range]))')], "short", green, { decimals: 0, graphMode: "none" }));
+  [q('sum(increase(filegrid_meter_readings_total{result="accepted"}[$__range])) or vector(0)')], "short", green, { decimals: 0, graphMode: "none" }));
 panels.push(stat("Duplicates refused", "filegrid_meter_readings_total{result=duplicate}: retries that FileGrid recognised by Idempotency-Key and did not store again.", s3(16, y + 6),
-  [q('sum(increase(filegrid_meter_readings_total{result="duplicate"}[$__range]))')], "short", green, { decimals: 0, graphMode: "none" }));
+  [q('sum(increase(filegrid_meter_readings_total{result="duplicate"}[$__range])) or vector(0)')], "short", green, { decimals: 0, graphMode: "none" }));
 panels.push(stat("Resends (same key)", "meter_sim_retries_total: resends by the simulator, always with the same Idempotency-Key and body.", s3(20, y + 6),
-  [q("sum(increase(meter_sim_retries_total[$__range]))")], "short", green, { noValue: NOSIM, decimals: 0, graphMode: "none" }));
+  [q("sum(increase(meter_sim_retries_total[$__range])) or vector(0)")], "short", green, { noValue: NOSIM, decimals: 0, graphMode: "none" }));
 y += 9;
 panels.push(ts("Readings per region", "meter_sim_sent_total by region (Muntenia, Banat, Dobrogea).", { x: 0, y, w: 12, h: 7 },
   [q("sum by (region) (rate(meter_sim_sent_total[$__rate_interval]))", "{{region}}")], "reqps", { noValue: NOSIM }));
@@ -181,16 +183,20 @@ panels.push(ts("Failing operations per storage", "filegrid_ops_total: outcome=er
   [q('(sum by (storage) (rate(filegrid_ops_total{outcome="error"}[$__rate_interval])) or sum by (storage) (rate(filegrid_ops_total[$__rate_interval])) * 0)\n/ sum by (storage) (rate(filegrid_ops_total[$__rate_interval]))', "{{storage}}")], "percentunit"));
 
 // ---------------------------------------------------------------- load tests
+// Collapsed: k6 metrics exist only after `make b-load`, so on a quiet stack these panels have
+// nothing to show. A collapsed row runs no queries until someone opens it. There is no "k6 run"
+// picker any more: it was the dashboard's only query variable, and when its label lookup failed
+// Grafana put "An error occurred within the plugin" over the whole Overview.
 y += 8;
-panels.push(row("Load tests: synthetic users through the gateway (k6)", y)); y += 1;
 const K6 = "run make b-load S=<scenario>";
-const t = 'testid=~"$testid"';
-panels.push(ts("Synthetic requests per second", "k6_http_reqs_total per scenario. Pick a run with the testid variable (e.g. storm-outage-143005).", { x: 0, y, w: 8, h: 7 },
-  [q(`sum by (testid, scenario) (rate(k6_http_reqs_total{${t}}[$__rate_interval]))`, "{{testid}} · {{scenario}}")], "reqps", { noValue: K6 }));
-panels.push(ts("Upload time seen by users (95 % within)", "k6_http_req_duration_p95: client-side p95 of uploads as k6 sees them through the gateway (TLS included).", { x: 8, y, w: 8, h: 7 },
-  [q(`max by (testid, category) (k6_http_req_duration_p95{${t}, name="upload"})`, "{{testid}} · {{category}}")], "s", { noValue: K6 }));
-panels.push(ts("Checks passing: stored and byte-identical", "k6_checks_rate: share of k6 checks passing: upload 201, receipt SHA-256 = local SHA-256, download byte-identical, video resumed and complete.", { x: 16, y, w: 8, h: 7 },
-  [q(`min by (testid) (k6_checks_rate{${t}})`, "{{testid}}")], "percentunit", { noValue: K6 }));
+const k6Panels = [];
+k6Panels.push(ts("Synthetic requests per second", "k6_http_reqs_total per run (testid) and scenario.", { x: 0, y: y + 1, w: 8, h: 7 },
+  [q("sum by (testid, scenario) (rate(k6_http_reqs_total[$__rate_interval]))", "{{testid}} · {{scenario}}")], "reqps", { noValue: K6 }));
+k6Panels.push(ts("Upload time seen by users (95 % within)", "k6_http_req_duration_p95: client-side p95 of uploads as k6 sees them through the gateway (TLS included).", { x: 8, y: y + 1, w: 8, h: 7 },
+  [q('max by (testid, category) (k6_http_req_duration_p95{name="upload"})', "{{testid}} · {{category}}")], "s", { noValue: K6 }));
+k6Panels.push(ts("Checks passing: stored and byte-identical", "k6_checks_rate: share of k6 checks passing: upload 201, receipt SHA-256 = local SHA-256, download byte-identical, video resumed and complete.", { x: 16, y: y + 1, w: 8, h: 7 },
+  [q("min by (testid) (k6_checks_rate)", "{{testid}}")], "percentunit", { noValue: K6 }));
+panels.push({ ...row("Load tests: synthetic users through the gateway (k6)", y), collapsed: true, panels: k6Panels });
 
 const custom = (name, label, values, current) => ({
   name, label, type: "custom", query: values.join(","), multi: true, includeAll: true,
@@ -201,8 +207,6 @@ const variables = [
   custom("category", "Category", ["meter", "outage", "document", "video"]),
   custom("storage", "Storage", ["db", "s3", "ftp", "spool"]),
   custom("op", "Op", ["write", "read", "verify"], "write"),
-  { name: "testid", label: "k6 run", type: "query", datasource: ds, query: { query: "label_values(k6_http_reqs_total, testid)", refId: "testid" },
-    refresh: 2, sort: 2, multi: true, includeAll: true, allValue: ".*", current: { text: ["All"], value: ["$__all"] } },
 ];
 const board = (uid, title, description, ps) => ({
   uid, title, description,

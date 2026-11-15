@@ -288,7 +288,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(filegrid_ops_total{category=~\"$category\", storage=~\"$storage\", op=~\"$op\"}[$__rate_interval]))",
+          "expr": "sum(rate(filegrid_ops_total{category=~\"$category\", storage=~\"$storage\", op=~\"$op\"}[$__rate_interval])) or vector(0)",
           "legendFormat": ""
         }
       ],
@@ -309,7 +309,7 @@
         "defaults": {
           "unit": "ops",
           "decimals": 1,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -367,7 +367,7 @@
         "defaults": {
           "unit": "percentunit",
           "decimals": 2,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -433,7 +433,7 @@
         "defaults": {
           "unit": "s",
           "decimals": 3,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -520,7 +520,7 @@
         "defaults": {
           "unit": "s",
           "min": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 8,
@@ -584,7 +584,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Work waiting, per category",
-      "description": "filegrid_queue_depth: items waiting in each category's queue (bulkhead). Until filegrid-api emits it, 'requests in progress' shows all requests being worked on across instances (http_server_requests_active_seconds_gcount, minus the scrape itself).",
+      "description": "filegrid_queue_depth: items waiting in each category's queue (bulkhead). During an outage storm only the outage line rises.",
       "gridPos": {
         "x": 8,
         "y": 6,
@@ -604,22 +604,13 @@
           },
           "expr": "sum by (category) (filegrid_queue_depth)",
           "legendFormat": "{{category}} waiting"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "label_replace(clamp_min(sum(http_server_requests_active_seconds_gcount{job=\"filegrid-api\"}) - count(count by (instance) (http_server_requests_active_seconds_gcount{job=\"filegrid-api\"})), 0), \"category\", \"requests in progress (all)\", \"\", \"\")",
-          "legendFormat": "{{category}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 8,
@@ -674,7 +665,7 @@
         "defaults": {
           "unit": "ops",
           "min": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 8,
@@ -729,7 +720,7 @@
         "defaults": {
           "unit": "ops",
           "min": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 8,

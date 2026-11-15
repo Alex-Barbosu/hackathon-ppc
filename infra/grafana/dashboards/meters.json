@@ -420,7 +420,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(meter_sim_sent_total[$__range]))",
+          "expr": "sum(increase(meter_sim_sent_total[$__range])) or vector(0)",
           "legendFormat": ""
         }
       ],
@@ -478,7 +478,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(filegrid_meter_readings_total{result=\"accepted\"}[$__range]))",
+          "expr": "sum(increase(filegrid_meter_readings_total{result=\"accepted\"}[$__range])) or vector(0)",
           "legendFormat": ""
         }
       ],
@@ -499,7 +499,7 @@
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -536,7 +536,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(filegrid_meter_readings_total{result=\"duplicate\"}[$__range]))",
+          "expr": "sum(increase(filegrid_meter_readings_total{result=\"duplicate\"}[$__range])) or vector(0)",
           "legendFormat": ""
         }
       ],
@@ -557,7 +557,7 @@
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "noValue": "waiting for filegrid-api metrics",
+          "noValue": "no traffic yet",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -594,7 +594,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(meter_sim_retries_total[$__range]))",
+          "expr": "sum(increase(meter_sim_retries_total[$__range])) or vector(0)",
           "legendFormat": ""
         }
       ],
