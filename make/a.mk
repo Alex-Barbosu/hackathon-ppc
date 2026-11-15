@@ -1,5 +1,5 @@
 # Zone A targets.
-.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check a-dedup-check a-meter-once-check a-seed-outages
+.PHONY: a-test a-run a-logs a-tus-check a-doc-check a-audit-check a-fallback-check a-policy-check a-bulkhead-check a-trace-check a-download-check a-ops-check a-slowlane-check a-meter-check a-comtrade-check a-dedup-check a-meter-once-check a-seed-outages a-seed-demo a-seed-clean
 
 a-test: ## Zone A: unit tests for filegrid-api
 	cd services/filegrid-api && mvn -q -B test
@@ -54,3 +54,9 @@ a-meter-once-check: ## Zone A: every reading sent 3x at once = 1 row; then the r
 
 a-seed-outages: ## Zone A: upload a week of realistic COMTRADE outage records with their county (idempotent; WRITE=dir also saves the .cfg files)
 	python3 services/filegrid-api/scripts/seed_outages.py
+
+a-seed-demo: ## Zone A: fill the stack with demo data through the real API: meters in all 11 counties (METERS=440 DAYS=14 PER_FILE=4), documents (DOCS=1500), outage records. Idempotent, about 5 minutes
+	python3 services/filegrid-api/scripts/seed_demo.py
+
+a-seed-clean: ## Zone A: remove what a-seed-demo made (meters RO-xx-1xxxxx and the seeded documents)
+	python3 services/filegrid-api/scripts/seed_demo.py --clean
