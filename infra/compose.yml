@@ -262,6 +262,10 @@ services:
       GF_USERS_VIEWERS_CAN_EDIT: "true"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_FEATURE_TOGGLES_ENABLE: traceToLogs
+      # Grafana 11 downloads the Logs/Explore apps from grafana.com at every start. Offline (a
+      # judge's laptop, a venue Wi-Fi) that logs errors and can leave a half-installed app; the
+      # dashboards need only the built-in Prometheus, Loki and Tempo plugins.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
       # https://<host>/grafana/ opens straight on FileGrid Overview.
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/overview.json
     volumes:
