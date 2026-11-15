@@ -32,10 +32,10 @@ up: check ## Generate secrets if needed, build and start everything, wait until 
 	@echo "  First visit shows a certificate warning: run 'make trust' once."
 
 down: ## Stop everything, keep data
-	$(COMPOSE) down
+	$(COMPOSE) --profile tunnel down
 
 reset: ## Stop everything and delete all data volumes
-	$(COMPOSE) down -v --remove-orphans
+	$(COMPOSE) --profile tunnel down -v --remove-orphans
 
 logs: ## Follow logs (one service: make logs s=filegrid-api)
 	$(COMPOSE) logs -f --tail=100 $(s)

@@ -37,6 +37,23 @@ printing the URLs:
 The browser warns about the certificate once, because TLS comes from Caddy's local CA.
 Run `make trust` and follow the printed command for your OS to trust it.
 
+### Share it: a public link (`make tunnel`)
+
+To show FileGrid to someone who is not at your machine, run `make tunnel` after `make up`. It
+opens a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+(no account needed) and prints a link like `https://<random-words>.trycloudflare.com`, with
+a real certificate, so no browser warning. `make tunnel-down` closes it.
+
+- The tunnel dials out to Cloudflare: no port is opened on your machine or router.
+- It forwards to Caddy, so the link behaves exactly like https://localhost: same login, same
+  routes, storages still unreachable, `/chaos` still needs an admin token.
+- Anyone with the link can open it while it runs. Grafana is open read-only (dashboards and
+  Explore: metrics, traces and logs, no personal data). Close it when the session ends.
+- The link changes every time the tunnel starts.
+- Cloudflare refuses a single request over 100 MB. Outage records and documents are far below
+  that, and videos upload in 16 MB tus chunks.
+- Grafana's own *Share* button still writes `localhost` links: copy the address bar instead.
+
 **Check it works:** `make ps` shows every service `Up (healthy)`, except `otel-collector`
 (no shell in its image; Prometheus watches it instead). Open
 https://localhost/grafana: in the **Smart meters** row, "sent" and "stored" climb at one

@@ -37,3 +37,8 @@ b-alert-check: ## Zone B: fire and resolve StorageDown, MeterReadingLossRisk, In
 .PHONY: b-trace
 b-trace: ## Zone B: upload one file, check its trace gateway → API → storage in Tempo and its log in Loki, print the Grafana link
 	@./scripts/trace-check.sh
+.PHONY: tunnel tunnel-down
+tunnel: ## Public HTTPS link (Cloudflare quick tunnel, random trycloudflare URL) to share the demo
+	@./scripts/tunnel.sh
+tunnel-down: ## Close the public link
+	docker compose --profile tunnel rm -sf cloudflared
