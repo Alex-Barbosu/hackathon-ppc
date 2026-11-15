@@ -10,7 +10,7 @@ export type Keyframe = [number, number, number, number, number];
 export interface InspectionMedia {
   video?: string;
   tracks?: Record<string, Keyframe[]>;
-  stills?: Record<string, { src: string; box: [number, number, number, number] }>;
+  stills?: Record<string, { src: string; box: [number, number, number, number]; at?: number; zoom?: number }>;
 }
 
 // The SPA fallback answers a missing file with index.html and a 200, so anything that is not JSON means "none".
