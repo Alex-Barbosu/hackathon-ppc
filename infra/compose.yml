@@ -122,6 +122,33 @@ services:
     networks: [edge, app, data]
     restart: unless-stopped
 
+  # Public link for mentors and judges: `make tunnel`. A Cloudflare quick tunnel (no account,
+  # random https://<words>.trycloudflare.com URL, new on every start). It dials out to
+  # Cloudflare, so no port is opened on this machine, and it forwards to Caddy, the only door:
+  # TLS, routing and login apply exactly as on https://localhost. Only on `edge`, so it can
+  # reach Caddy and nothing else. Profile "tunnel": `make up` never starts it.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.0
+    profiles: [tunnel]
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - https://caddy:443
+      # Caddy serves the site named FILEGRID_HOST; present that name (SNI and Host header) so
+      # the request lands on it, whatever the public trycloudflare host is.
+      - --origin-server-name
+      - ${FILEGRID_HOST:-localhost}
+      - --http-host-header
+      - ${FILEGRID_HOST:-localhost}
+      # Caddy's certificate comes from its own local CA, which cloudflared does not know. This
+      # hop stays inside the edge Docker network; the public side is Cloudflare's own TLS.
+      - --no-tls-verify
+    networks: [edge]
+    depends_on:
+      caddy: { condition: service_healthy }
+    restart: unless-stopped
+
   mock-api:
     # Prism mock of contracts/openapi.yaml, served at https://<host>/mock/...
     image: stoplight/prism:5.15.10

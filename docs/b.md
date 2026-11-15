@@ -625,6 +625,38 @@ Nothing to fix. Full check output:
 Postgres + S3 through Toxiproxy (#33) are on main, so those requests below are done. FTP
 through Toxiproxy still needs ten passive-port proxies on zone B's side (#33 explains it).
 
+## Public link for mentors: Cloudflare quick tunnel (branch `zone-b/cloudflare-tunnel`)
+
+`make tunnel` starts `cloudflared` (compose profile `tunnel`, so `make up` never does), waits
+for the `https://<words>.trycloudflare.com` URL, checks `/api/v1/health` answers 200 through
+it, and prints it. `make tunnel-down` removes the container; `make down` and `make reset` also
+stop it.
+
+Design:
+- **Quick tunnel, no account.** Nothing to configure or store, so no secret enters `.env`.
+  The price: a new random URL on every start. A named tunnel (stable hostname) would need a
+  Cloudflare account, a domain and a token in `.env`.
+- **Through Caddy, never around it.** `--url https://caddy:443`, on the `edge` network only:
+  cloudflared cannot reach the API, the storages or Grafana directly. Login, `/chaos` auth and
+  the internal-only `/insights/alerts` (404) work as on localhost.
+- **Host and SNI set to `FILEGRID_HOST`.** Caddy serves one site by name; without
+  `--http-host-header` / `--origin-server-name` the trycloudflare host matches nothing.
+- **`--no-tls-verify` on the cloudflared → Caddy hop only.** Caddy's certificate is from its
+  local CA. The hop stays inside Docker's `edge` network; visitors get Cloudflare's public
+  certificate (checked: valid, no warning).
+
+Evidence (read-only, through the public URL): `/`, `/library`, `/grafana/`, the Storm board,
+Explore, `/api/v1/health`, `/insights/health` → 200; `/chaos/state` and `/api/v1/files` → 401
+without a token; `/insights/alerts` → 404; Grafana home is FileGrid Overview; Prometheus through
+Grafana read 1.04 readings/s; `/grafana` redirects to the trycloudflare host, not localhost;
+public certificate valid. After `make tunnel-down`, the URL answers 530.
+
+Checked by hand (Robert, 15 Nov): the link opened in a browser and the app worked through it.
+The agent does not send files or passwords out through a public host, so it did not script
+login, uploads or downloads over the tunnel; a scripted video upload over the tunnel was not
+run (16 MB tus chunks are under Cloudflare's 100 MB request limit). Grafana's
+*Share* links still say `localhost` (its root URL); copy the address bar instead.
+
 ## Video storms (branch `zone-b/video-storm`)
 
 `POST /chaos/storm {"category":"video"}` answered 409 until tus existed. Now chaos-control
