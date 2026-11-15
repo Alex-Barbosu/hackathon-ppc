@@ -2,9 +2,10 @@ import { useReducedMotion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InspectionHandle, Window } from "../../three/inspectionScene";
 import { FINDINGS, FLIGHT } from "./findings";
+import type { PlayerState } from "./player";
 
 /** Owns the rendered flight: loads three.js lazily, mirrors its clock into React a few times a second. */
-export function useInspectionPlayer() {
+export function useInspectionPlayer(): PlayerState & { gl: React.RefObject<HTMLCanvasElement | null>; overlay: React.RefObject<HTMLCanvasElement | null> } {
   const gl = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const handle = useRef<InspectionHandle | null>(null);
@@ -43,5 +44,5 @@ export function useInspectionPlayer() {
     if (w) { handle.current?.seek(w.best); handle.current?.pause(); }
   }, [windows]);
 
-  return { gl, overlay, sec, playing, windows, failed, selected, toggle, seek, focus };
+  return { gl, overlay, sec, playing, duration: FLIGHT.durationSec, windows, failed, selected, toggle, seek, focus };
 }
