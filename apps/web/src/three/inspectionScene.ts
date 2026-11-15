@@ -1,7 +1,7 @@
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import type { Finding } from "../features/inspection/findings";
 import { anchorPoint, dronePose, trees } from "./inspectionFlight";
-import { drawBox, type Box } from "./inspectionOverlay";
+import { drawBox, rectFromCircle, type Box } from "./inspectionOverlay";
 import { powerLine } from "./line";
 import { MOODS, skyDome } from "./sky";
 
@@ -68,7 +68,7 @@ export function mountInspection(gl: HTMLCanvasElement, overlay: HTMLCanvasElemen
     ctx.clearRect(0, 0, w, h);
     for (const { f, at } of anchors) {
       const box = project(cam, at, f.anchor.radius, w, h);
-      if (box) drawBox(ctx, f, box, sec, f.id === selected);
+      if (box) drawBox(ctx, f, rectFromCircle(f, box), sec, f.id === selected);
     }
     if (now - lastTick > 100) { lastTick = now; o.onTick(sec, playing); }
     frame = requestAnimationFrame(draw);

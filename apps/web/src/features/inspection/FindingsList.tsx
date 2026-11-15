@@ -1,16 +1,18 @@
 import { Chip, WIDGET } from "../../components/ui";
 import type { Window } from "../../three/inspectionScene";
+import { EvidenceStill } from "./EvidenceStill";
 import { FINDINGS, KIND_LABEL, type Severity } from "./findings";
+import type { InspectionMedia } from "./media";
 import { timecode } from "./timecode";
 
 const SEVERITY: Record<Severity, { tone: "bad" | "warn" | "neutral"; word: string }> = {
   high: { tone: "bad", word: "High" }, medium: { tone: "warn", word: "Medium" }, review: { tone: "neutral", word: "Needs review" },
 };
 
-interface FindingsListProps { windows: Window[]; selected: string | null; onFocus: (id: string) => void }
+interface FindingsListProps { windows: Window[]; selected: string | null; onFocus: (id: string) => void; stills: InspectionMedia["stills"] }
 
 // One row per detection, tied to a span or tower; clicking a row seeks the footage to it.
-export function FindingsList({ windows, selected, onFocus }: FindingsListProps) {
+export function FindingsList({ windows, selected, onFocus, stills }: FindingsListProps) {
   return (
     <ol className={`${WIDGET} divide-y-[0.8px] divide-line`}>
       {FINDINGS.map((f) => {
@@ -29,6 +31,7 @@ export function FindingsList({ windows, selected, onFocus }: FindingsListProps) 
                 <span>{w ? timecode(w.best) : "—"} · {f.confidence.toFixed(2)}</span>
               </div>
               <p className="mt-1.5 text-[13px] leading-snug text-faint">{f.detail}</p>
+              {selected === f.id && stills?.[f.id] && <EvidenceStill f={f} still={stills[f.id]!} />}
             </button>
           </li>
         );
