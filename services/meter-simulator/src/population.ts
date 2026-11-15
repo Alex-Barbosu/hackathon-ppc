@@ -1,4 +1,5 @@
 import { COUNTIES, REGION_CODE, type Region } from "./geo.js";
+import { faultFor, type Fault } from "./faults.js";
 import { gaussian, pickWeighted, rng } from "./random.js";
 
 export type MeterKind = "household" | "business";
@@ -16,6 +17,8 @@ export interface Meter {
   dailyKwh: number;
   /** Steady offset from 230 V: distance from the transformer, tap setting. */
   voltageOffset: number;
+  /** Planted fault, if this is one of the few misbehaving meters (see faults.ts). */
+  fault?: Fault;
 }
 
 const FIRMWARE = ["3.2.1", "3.2.4", "3.3.0"] as const;
@@ -49,6 +52,8 @@ export function buildPopulation(count: number): Meter[] {
       dailyKwh,
       voltageOffset: clamp(2 * gaussian(r), -6, 6),
     });
+    const fault = faultFor(index);
+    if (fault) meters[meters.length - 1]!.fault = fault;
   }
   return meters;
 }

@@ -79,9 +79,10 @@ test("daily load curve: night trough, morning and evening peaks (Bucharest local
 
 test("voltage stays around 230 V within EN 50160 limits", () => {
   const volts: number[] = [];
-  for (let i = 0; i < 200; i++) {
+  // Planted voltage sags are covered by their own test below.
+  for (const meter of meters.slice(0, 200).filter((m) => m.fault?.kind !== "voltage_sag")) {
     for (let q = 0; q < 96; q++) {
-      const v = buildInterval(meters[i]!, day + q * INTERVAL_MS).voltage;
+      const v = buildInterval(meter, day + q * INTERVAL_MS).voltage;
       if (v !== undefined) volts.push(v);
     }
   }
@@ -97,4 +98,18 @@ test("Bucharest offset follows EU summer time", () => {
   assert.equal(bucharestOffsetMs(Date.UTC(2026, 2, 29, 0, 59)), 2 * 3_600_000);
   assert.equal(bucharestOffsetMs(Date.UTC(2026, 2, 29, 1, 0)), 3 * 3_600_000);
   assert.equal(bucharestOffsetMs(Date.UTC(2026, 9, 25, 1, 0)), 2 * 3_600_000);
+});
+
+test("a few meters carry planted faults that recur and replay identically", () => {
+  const faulty = meters.filter((m) => m.fault);
+  assert.ok(faulty.length >= 10 && faulty.length <= 40, `${faulty.length} faulty meters`);
+  assert.equal(new Set(faulty.map((m) => m.fault?.kind)).size, 4);
+  for (const m of faulty) {
+    const day1 = Array.from({ length: 96 }, (_, q) => buildInterval(m, day + q * INTERVAL_MS));
+    assert.deepEqual(day1, Array.from({ length: 96 }, (_, q) => buildInterval(m, day + q * INTERVAL_MS)));
+    const kwh = day1.map((iv) => iv.kwh);
+    if (m.fault?.kind === "voltage_sag") assert.ok(day1.some((iv) => iv.voltage !== undefined && iv.voltage < 207));
+    if (m.fault?.kind === "stuck_meter") assert.ok(kwh.some((_, i) => i >= 7 && new Set(kwh.slice(i - 7, i + 1)).size === 1));
+    if (m.fault?.kind === "spike") assert.ok(Math.max(...kwh) > 4 * (m.dailyKwh / 96));
+  }
 });
