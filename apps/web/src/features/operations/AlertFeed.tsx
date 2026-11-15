@@ -14,9 +14,9 @@ export function AlertFeed() {
   const firing = shown.filter((i) => i.status === "firing").length;
   return (
     <section aria-label="Alerts">
-      <p className="label text-white/75">Alerts · last 15 minutes</p>
+      <p className="label text-faint">Alerts · last 15 minutes</p>
       {isError && <p className="mt-3 text-[13px] text-white/75">Alerts could not be read. Showing nothing rather than a stale list.</p>}
-      {!isError && firing === 0 && <h3 className="mt-3 font-display text-[28px] leading-[1.15] text-white/90 sm:text-4xl">No alerts firing. The guarantees are <em>holding</em>.</h3>}
+      {!isError && firing === 0 && <h3 className="mt-3 flex items-center gap-2.5 text-lg font-normal"><span aria-hidden className="size-2 rounded-full bg-good" />No alerts firing. Every guarantee is holding.</h3>}
       <ul className="mt-3 space-y-3">
         {shown.map((i) => {
           const live = i.status === "firing";

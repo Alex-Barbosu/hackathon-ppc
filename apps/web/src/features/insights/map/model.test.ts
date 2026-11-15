@@ -14,9 +14,9 @@ test("dots are ranked by count and placed on their county; rows without a county
 });
 
 test("dot area grows with the count, so four times the recordings is twice the radius above the minimum", () => {
-  assert.equal(dotRadius(9, 9), 16);
-  assert.equal(dotRadius(0, 9), 4);
-  assert.ok(Math.abs((dotRadius(4, 16) - 4) * 2 - (dotRadius(16, 16) - 4)) < 1e-9);
+  assert.equal(dotRadius(9, 9), 9);
+  assert.equal(dotRadius(0, 9), 3);
+  assert.ok(Math.abs((dotRadius(4, 16) - 3) * 2 - (dotRadius(16, 16) - 3)) < 1e-9);
 });
 
 test("no recordings: an empty map, every share zero", () => {

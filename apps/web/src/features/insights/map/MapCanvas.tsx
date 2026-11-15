@@ -9,7 +9,15 @@ export interface MapCanvasProps { dots: MapDot[]; active?: string | undefined; o
 
 // Fills are opaque on purpose: the wide stroke drawn first is then covered everywhere except the country's
 // outer edge, which gives Romania a crisp border and the counties hairlines, from one set of paths.
-const fillOf = (name: string, active: boolean) => (active ? "#2e2e2e" : SERVED.has(name) ? "#1d1d1d" : "#151515");
+// Heat: a county's fill warms from the panel grey toward amber with its share of the busiest county's count.
+// Square root, like the dots, so one very busy county does not flatten the rest to grey.
+export function heatFill(name: string, heat: number, active: boolean): string {
+  if (!SERVED.has(name)) return "#151515";
+  const t = Math.sqrt(Math.max(0, Math.min(1, heat)));
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
+  const lift = active ? 14 : 0;
+  return `rgb(${mix(29, 150) + lift} ${mix(29, 92) + lift} ${mix(29, 18) + lift})`;
+}
 
 // Region names sit at the edge of each region, away from its dots; a dark halo keeps them clear of the borders.
 const REGION_LABELS = [
@@ -22,6 +30,8 @@ export function MapCanvas({ dots, active, onHover, onSelect }: MapCanvasProps) {
   const ref = useRef<SVGSVGElement>(null);
   const seen = useInView(ref, { once: true, amount: 0.35 });
   const hasDot = new Set(dots.map((d) => d.county));
+  const max = Math.max(1, ...dots.map((d) => d.h.outages));
+  const heat = new Map(dots.map((d) => [d.county, d.h.outages / max]));
   return (
     <svg ref={ref} viewBox={ROMANIA_VIEWBOX} className="h-auto w-full overflow-visible select-none"
       role="group" aria-label="Map of Romania: outage recordings by county">
@@ -32,7 +42,7 @@ export function MapCanvas({ dots, active, onHover, onSelect }: MapCanvasProps) {
         <g strokeWidth={0.6} strokeLinejoin="round">
           {COUNTY_PATHS.map((c) => (
             <motion.path key={c.name} d={c.d} stroke={SERVED.has(c.name) ? "#3a3a3a" : "#262626"}
-              initial={false} animate={{ fill: fillOf(c.name, c.name === active) }} transition={{ duration: 0.35 }}
+              initial={false} animate={{ fill: heatFill(c.name, seen ? (heat.get(c.name) ?? 0) : 0, c.name === active) }} transition={{ duration: 0.8 }}
               className={hasDot.has(c.name) ? "cursor-pointer" : undefined}
               onPointerEnter={hasDot.has(c.name) ? () => onHover(c.name) : undefined}
               onPointerLeave={hasDot.has(c.name) ? () => onHover(null) : undefined}

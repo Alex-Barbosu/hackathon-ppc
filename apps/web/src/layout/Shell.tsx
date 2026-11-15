@@ -4,7 +4,9 @@ import { motion, useReducedMotion } from "framer-motion";
 import { SPRING } from "../components/motion/springs";
 import { GridMark } from "../components/phone/PhoneScreen";
 import { useSession } from "../state/session";
-import { Footer } from "./Footer";
+import { StatusBar } from "./StatusBar";
+import { CommandPalette } from "./CommandPalette";
+import { usePrefetchInsights } from "../features/insights/useInsights";
 import { NavLinks } from "./NavLinks";
 import { useAccess } from "../state/useAccess";
 import { usePanels } from "../state/panels";
@@ -21,6 +23,8 @@ export function Shell() {
   const panels = usePanels();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const reduce = useReducedMotion();
+  // Insights is the slowest screen (the briefing is written on demand); start it at sign-in so it is ready when opened.
+  usePrefetchInsights(signedIn && access.pages.includes("/insights"));
   // The API signs us out on a 401; send the user to Login instead of leaving a dead page.
   useEffect(() => {
     if (!signedIn) void navigate({ to: "/login" });
@@ -46,10 +50,11 @@ export function Shell() {
         </div>
       </motion.header>
       {/* Keyed by route: each screen fades up as it arrives. No exit animation, so navigation never waits. */}
-      <motion.main key={path} initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={SPRING.soft} className="pb-24">
+      <motion.main key={path} initial={reduce ? false : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={SPRING.soft} className="pb-6">
         <Outlet />
       </motion.main>
-      <Footer />
+      <StatusBar />
+      <CommandPalette />
       {access.chaos && <ChaosDock />}
       {access.analyst && <><AnalystPanel /><AnalystLauncher /></>}
       <Toasts />

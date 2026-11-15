@@ -18,10 +18,10 @@ export function LibraryPage() {
   const { data, isLoading, isError, refetch } = useFileSearch();
   return (
     <>
-      <PageHero label="Library" title={<>Find it, <em>prove</em> it.</>}>
-        Find a stored file and download it. Each download is checked against its SHA-256 as it streams.
+      <PageHero label="Library" title="Library">
+        Search stored files. Every download is re-hashed against its SHA-256 as it streams.
       </PageHero>
-      <div className={`${CARD} mt-12 p-5 sm:p-8`}><SearchBar /></div>
+      <div className={`${CARD} mt-6 p-5 sm:p-6`}><SearchBar /></div>
       <div className="mt-6">
         {isLoading && <Skeleton />}
         {isError && (

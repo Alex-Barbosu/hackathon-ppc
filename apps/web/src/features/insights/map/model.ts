@@ -5,8 +5,8 @@ export interface MapDot { county: string; region: string; x: number; y: number; 
 export interface RegionShare { region: string; outages: number; share: number }
 export interface MapModel { dots: MapDot[]; total: number; unplaced: number; regions: RegionShare[] }
 
-const MIN_R = 4;
-const MAX_R = 16;
+const MIN_R = 3;
+const MAX_R = 9;
 const SERVED_REGIONS = ["dobrogea", "banat", "muntenia"] as const;
 const CENTRE = new Map(COUNTY_CENTRES.map((c) => [c.name, c]));
 
