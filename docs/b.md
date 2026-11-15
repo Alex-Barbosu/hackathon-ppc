@@ -651,10 +651,10 @@ without a token; `/insights/alerts` → 404; Grafana home is FileGrid Overview; 
 Grafana read 1.04 readings/s; `/grafana` redirects to the trycloudflare host, not localhost;
 public certificate valid. After `make tunnel-down`, the URL answers 530.
 
-Not verified through the tunnel: login, uploads and downloads (the agent does not send files
-or passwords out through a public host). Do one by hand: open the link, log in, upload one
-file per category, download each. Also not checked: a video upload over the tunnel (16 MB
-tus chunks are under Cloudflare's 100 MB request limit, but no run proves it). Grafana's
+Checked by hand (Robert, 15 Nov): the link opened in a browser and the app worked through it.
+The agent does not send files or passwords out through a public host, so it did not script
+login, uploads or downloads over the tunnel; a scripted video upload over the tunnel was not
+run (16 MB tus chunks are under Cloudflare's 100 MB request limit). Grafana's
 *Share* links still say `localhost` (its root URL); copy the address bar instead.
 
 ## Video storms (branch `zone-b/video-storm`)
