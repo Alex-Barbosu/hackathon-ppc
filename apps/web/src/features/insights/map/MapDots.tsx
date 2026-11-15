@@ -7,7 +7,7 @@ interface Props { dots: MapDot[]; active?: string | undefined; seen: boolean; on
 // Names for the top three only; on a phone the map is too small for any, and the panel below names the county.
 const LABELLED = 3;
 
-// One colour for every dot: amber is FileGrid's "needs attention" status colour, and size alone carries the count.
+// Pale dots on warm counties: the county fill carries the heat, the dot marks the exact count and is the click target.
 export function MapDots({ dots, active, seen, onHover, onSelect }: Props) {
   const current = dots.find((d) => d.county === active);
   const key = (county: string) => (e: KeyboardEvent) => {
@@ -22,7 +22,7 @@ export function MapDots({ dots, active, seen, onHover, onSelect }: Props) {
           className="cursor-pointer outline-none" onPointerEnter={() => onHover(d.county)} onPointerLeave={() => onHover(null)}
           onFocus={() => onSelect(d.county)} onClick={() => onSelect(d.county)} onKeyDown={key(d.county)}>
           <circle cx={d.x} cy={d.y} r={Math.max(d.r + 4, 11)} fill="transparent" />
-          <motion.circle cx={d.x} cy={d.y} fill="var(--color-warn)" fillOpacity={0.88} stroke="#121212" strokeWidth={1.4}
+          <motion.circle cx={d.x} cy={d.y} fill="#fde68a" fillOpacity={0.95} stroke="#121212" strokeWidth={1.4}
             initial={{ r: 0 }} animate={{ r: seen ? d.r : 0 }} transition={{ ...SPRING.soft, delay: seen ? 0.35 + d.rank * 0.08 : 0 }} />
         </g>
       ))}

@@ -1,51 +1,48 @@
 import { useState, type FormEvent } from "react";
 import { FIELD, PrimaryButton } from "../../components/ui";
 import { GridMark } from "../../components/phone/PhoneScreen";
-import { Reveal } from "../../components/motion/Reveal";
 import { GridScene } from "../../components/GridScene";
-import { LoginPhone } from "./LoginPhone";
-import { RolePicker } from "./RolePicker";
+import { ROLES } from "./roles";
 import { useLogin } from "./useLogin";
 
 export function LoginPage() {
   const login = useLogin();
   const [username, setUsername] = useState("dispatch");
   const [password, setPassword] = useState("");
-
   const submit = (e: FormEvent) => {
     e.preventDefault();
     login.mutate({ username: username.trim(), password });
   };
-
   return (
-    // A conventional split sign-in: the form on plain ground, the picture beside it. Exactly one viewport tall.
-    <main className="grid h-dvh overflow-y-auto p-3 lg:grid-cols-[minmax(420px,1fr)_1.25fr] lg:gap-3 lg:overflow-hidden">
-      <section className="flex flex-col px-4 py-4 sm:px-10">
+    // An operator console sign-in: the form and nothing to read first. The live scene stays as the backdrop.
+    <main className="relative grid min-h-dvh place-items-center overflow-hidden p-4">
+      <div className="absolute inset-0 opacity-70"><GridScene mood="dusk" /></div>
+      <div aria-hidden className="absolute inset-0 bg-linear-to-t from-canvas via-canvas/60 to-canvas/20" />
+      <section className="relative w-full max-w-[430px] rounded-card border-[0.8px] border-white/14 bg-[#0c0c0c]/85 p-7 shadow-[0_32px_80px_-24px_rgb(0_0_0/0.9)] backdrop-blur-xl">
         <p className="flex items-center gap-2.5 text-base font-medium"><GridMark /> FileGrid</p>
-        <Reveal className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-8 [@media(max-height:760px)]:py-3">
-          <h1 className="font-display text-[40px] leading-[1.1] [@media(max-height:760px)]:text-[32px]">Sign <em>in</em></h1>
-          <p className="mt-2 text-[15px] text-muted">Choose your role. It decides which files and screens you see.</p>
-          <form onSubmit={submit} className="mt-8 space-y-5 [@media(max-height:760px)]:mt-4 [@media(max-height:760px)]:space-y-3">
-            <RolePicker value={username} onPick={setUsername} />
-            <label className="block">
-              <span className="label mb-2 block text-faint">Username</span>
-              <input className={FIELD} autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="label mb-2 block text-faint">Password</span>
-              <input className={FIELD} type="password" autoComplete="current-password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} />
-            </label>
-            {login.isError && <p role="alert" className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">{login.error.message}</p>}
-            <PrimaryButton type="submit" className="w-full" disabled={login.isPending}>{login.isPending ? "Signing in…" : "Sign in"}</PrimaryButton>
-          </form>
-          <p className="mt-6 text-[13px] text-faint [@media(max-height:760px)]:hidden">Demo accounts share one password, set as DEMO_PASSWORD in .env.</p>
-        </Reveal>
-        <p className="text-[13px] text-faint">Rețele Electrice România · PPC group</p>
-      </section>
-      <section className="relative hidden flex-col items-center justify-center gap-10 overflow-hidden rounded-card p-10 lg:flex [@media(max-height:760px)]:gap-4 [@media(max-height:760px)]:p-6">
-        <GridScene mood="day" />
-        <Reveal delay={0.25}><h2 className="relative max-w-md text-center font-display text-[56px] leading-[1.05] xl:text-[72px] [@media(max-height:760px)]:text-[44px]">Every file, <em>proven</em>.</h2></Reveal>
-        <div className="relative"><LoginPhone /></div>
+        <p className="mt-1 text-[13px] text-faint">Rețele Electrice România · operations console</p>
+        <form onSubmit={submit} className="mt-7 space-y-4">
+          <label className="block">
+            <span className="label mb-2 block text-faint">Username</span>
+            <input className={FIELD} autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label mb-2 block text-faint">Password</span>
+            <input className={FIELD} type="password" autoComplete="current-password" autoFocus required value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          {login.isError && <p role="alert" className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">{login.error.message}</p>}
+          <PrimaryButton type="submit" className="w-full" disabled={login.isPending}>{login.isPending ? "Signing in…" : "Sign in"}</PrimaryButton>
+        </form>
+        {/* Demo accounts are named after their roles; one row of chips fills the username without a wall of cards. */}
+        <div role="radiogroup" aria-label="Demo account" className="mt-6 flex flex-wrap items-center gap-1.5 border-t-[0.8px] border-line pt-4">
+          <span className="label mr-1 text-faint">Demo</span>
+          {ROLES.map((r) => (
+            <button key={r.id} type="button" role="radio" aria-checked={username === r.id} title={r.hint} onClick={() => setUsername(r.id)}
+              className={`label rounded-md px-2 py-1 transition-colors focus-visible:outline-2 focus-visible:outline-accent ${username === r.id ? "bg-white text-black" : "bg-white/8 text-muted hover:text-ink"}`}>
+              {r.label}
+            </button>
+          ))}
+        </div>
       </section>
     </main>
   );

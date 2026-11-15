@@ -1,12 +1,13 @@
 import { SourceChips } from "./SourceChips";
 import { RichText } from "./RichText";
 import type { ChatMessage } from "./useChat";
+import { ANALYST_NAME, VoltaMark } from "./Volta";
 
 function Assistant({ m }: { m: ChatMessage }) {
   const working = m.status === "streaming" && !m.text;
   return (
     <div className="space-y-3">
-      <p className="label text-faint">Analyst</p>
+      <p className="label flex items-center gap-2 text-faint"><VoltaMark busy={m.status === "streaming"} size={20} />{ANALYST_NAME}</p>
       {working && (
         <p className="flex items-center gap-2 text-sm text-muted" aria-live="polite">
           <span className="inline-flex gap-1" aria-hidden>{[0, 1, 2].map((i) => <span key={i} className="size-1 animate-pulse rounded-full bg-white/60" style={{ animationDelay: `${i * 160}ms` }} />)}</span>

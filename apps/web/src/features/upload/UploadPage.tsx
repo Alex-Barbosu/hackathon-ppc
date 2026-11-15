@@ -3,11 +3,10 @@ import { PageHero } from "../../components/PageHero";
 import { Arrow, CARD, PrimaryButton } from "../../components/ui";
 import { CategoryPicker } from "./CategoryPicker";
 import { DropZone } from "./DropZone";
-import { HowItWorks } from "./HowItWorks";
 import { PlaceFields } from "./PlaceFields";
 import { ReceiptCard } from "./ReceiptCard";
 import { TusProgress } from "./TusProgress";
-import { UploadPhone } from "./UploadPhone";
+import { UploadFacts } from "./UploadFacts";
 import { useTusUpload } from "./useTusUpload";
 import { useUpload } from "./useUpload";
 import { useUploadForm } from "./useUploadForm";
@@ -31,11 +30,11 @@ export function UploadPage() {
 
   return (
     <>
-      <PageHero label="Upload" title={<>Upload a <em>record</em>.</>}>
-        Every file is hashed on arrival, so you can prove later that what you download is what you sent.
+      <PageHero label="Upload" title="Upload">
+        Hashed on arrival, routed by the category policy, receipt returned with SHA-256 and trace ID.
       </PageHero>
-      <div className="mt-12 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section aria-label="Upload form" className={`${CARD} space-y-8 p-5 sm:p-10`}>
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section aria-label="Upload form" className={`${CARD} space-y-6 p-5 sm:p-8`}>
           <CategoryPicker value={category} allowed={allowed} onChange={(c) => { setCategory(c); multipart.reset(); tus.reset(); }} />
           <PlaceFields withCounty={category === "outage"} />
           <DropZone file={file} onFile={setFile} disabled={busy} />
@@ -47,9 +46,8 @@ export function UploadPage() {
           {isVideo && tus.state.phase === "done" && !receipt && <p className="text-sm text-good">{tus.state.message}</p>}
           {receipt && <ReceiptCard receipt={receipt} />}
         </section>
-        <UploadPhone category={category} file={file} receipt={receipt ?? null} pending={busy} percent={isVideo ? tus.state.percent : null} />
+        <UploadFacts category={category} />
       </div>
-      <div className="mt-24"><HowItWorks /></div>
     </>
   );
 }

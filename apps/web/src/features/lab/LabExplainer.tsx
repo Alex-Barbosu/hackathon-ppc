@@ -1,4 +1,3 @@
-import { Stagger, StaggerItem } from "../../components/motion/Reveal";
 // The Lab's recommendation is only trustworthy if a reader can see how it was reached, so the
 // method is on the page in four plain steps, mirroring services/insights/src/storageLab.
 const STEPS = [
@@ -10,14 +9,18 @@ const STEPS = [
 
 export function LabExplainer() {
   return (
-    <Stagger as="section" className="grid gap-px overflow-hidden rounded-card border-[0.8px] border-line bg-line sm:grid-cols-2 xl:grid-cols-4">
-      {STEPS.map((s, i) => (
-        <StaggerItem key={s.title} className="bg-canvas p-6">
-          <p className="label text-faint">Step 0{i + 1}</p>
-          <h3 className="mt-3 text-base font-normal text-white">{s.title}</h3>
-          <p className="mt-2 text-sm leading-[1.55] text-muted">{s.body}</p>
-        </StaggerItem>
-      ))}
-    </Stagger>
+    // Collapsed by default: an operator who knows the method should not scroll past it on every visit.
+    <details className="rounded-widget border-[0.8px] border-line bg-panel px-5 py-3 text-sm">
+      <summary className="cursor-pointer select-none text-muted hover:text-ink">Method: how a storage is scored</summary>
+      <ol className="grid gap-x-8 gap-y-4 pt-4 pb-2 sm:grid-cols-2 xl:grid-cols-4">
+        {STEPS.map((s, i) => (
+          <li key={s.title}>
+            <p className="label text-faint">Step 0{i + 1}</p>
+            <h3 className="mt-2 text-sm font-normal text-white">{s.title}</h3>
+            <p className="mt-1 text-[13px] leading-[1.55] text-muted">{s.body}</p>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }

@@ -3,6 +3,9 @@ import { Drawer } from "../../components/Drawer";
 import { usePanels } from "../../state/panels";
 import { ChatMessages } from "./ChatMessages";
 import { useChat } from "./useChat";
+import { useSession } from "../../state/session";
+import { useStoragesHealth } from "../operations/useStoragesHealth";
+import { ANALYST_NAME, greeting, VoltaMark } from "./Volta";
 
 export const SUGGESTIONS = [
   "How did today's storm compare with a normal day?",
@@ -16,6 +19,9 @@ export function AnalystPanel() {
   const isOpen = open === "analyst";
   const { messages, busy, send, reset } = useChat();
   const [q, setQ] = useState("");
+  const role = useSession((s) => s.session?.role);
+  const health = useStoragesHealth().data;
+  const down = health?.filter((s) => !s.up).length ?? 0;
   const end = useRef<HTMLDivElement>(null);
   const go = (text: string) => { if (text.trim() && !busy) { void send(text.trim()); setQ(""); } };
   // A suggestion clicked elsewhere (Insights page) arrives as a draft and is asked straight away.
@@ -24,7 +30,7 @@ export function AnalystPanel() {
 
   const composer = (
     <form className="flex gap-2 border-t-[0.8px] border-line p-3" onSubmit={(e) => { e.preventDefault(); go(q); }}>
-      <input aria-label="Message the analyst" value={q} maxLength={1000} onChange={(e) => setQ(e.target.value)} placeholder="Ask about latency, storms, meters…"
+      <input aria-label={`Message ${ANALYST_NAME}`} value={q} maxLength={1000} onChange={(e) => setQ(e.target.value)} placeholder={`Ask ${ANALYST_NAME} about latency, storms, meters…`}
         className="min-h-12 flex-1 rounded-xl border-[0.8px] border-white/12 bg-surface px-4 text-[15px] placeholder:text-faint focus-visible:outline-2 focus-visible:outline-accent" />
       <button type="submit" disabled={busy || !q.trim()} aria-label="Send"
         className="grid size-12 shrink-0 place-items-center rounded-xl bg-white text-black transition-opacity disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
@@ -33,16 +39,23 @@ export function AnalystPanel() {
     </form>
   );
   const title = (
-    <div>
-      <p className="font-display text-2xl">Analyst</p>
-      <p className="text-xs text-faint">Live metrics and aggregates only. No personal data.</p>
+    <div className="flex items-center gap-3">
+      <VoltaMark busy={busy} size={36} />
+      <div>
+        <p className="font-display text-2xl leading-none">{ANALYST_NAME}</p>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-faint">
+          <span aria-hidden className={`size-1.5 rounded-full ${busy ? "bg-info" : down ? "bg-warn" : "bg-good"}`} />
+          {busy ? "Reading the metrics…" : down ? `Watching: ${down} storage${down === 1 ? "" : "s"} down` : "Grid analyst · all storages up"}
+        </p>
+      </div>
     </div>
   );
   return (
     <Drawer open={isOpen} label="Analyst chat" title={title} onClose={close} footer={composer}>
       {messages.length === 0 ? (
         <div className="space-y-4 p-6">
-          <p className="text-[15px] text-muted">Ask a question in plain words. Every number in the answer comes from a live query you can inspect.</p>
+          <p className="text-[15px] leading-relaxed">{greeting(role)}</p>
+          <p className="text-[13px] text-faint">I only see metrics and aggregates, never file names, contents or personal data. Every number I give links to the query behind it.</p>
           <div className="grid gap-2">
             {SUGGESTIONS.map((s) => (
               <button key={s} type="button" onClick={() => go(s)} className="rounded-xl border-[0.8px] border-line bg-surface px-4 py-3 text-left text-[15px] transition-colors hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-accent">{s}</button>

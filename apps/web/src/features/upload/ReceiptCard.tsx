@@ -1,3 +1,4 @@
+import { traceUrl } from "../../lib/grafana";
 import { motion } from "framer-motion";
 import { HashText } from "../../components/HashText";
 import { StorageBadge } from "../../components/StorageBadge";
@@ -23,7 +24,7 @@ export function ReceiptCard({ receipt }: { receipt: FileReceipt }) {
       className="rounded-widget border-[0.8px] border-line bg-panel p-6"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-display text-[28px] leading-[1.15] text-white/80 sm:text-4xl">Stored and <em>verified</em>.</h2>
+        <h2 className="flex items-center gap-2.5 text-lg font-normal"><span aria-hidden className="size-2 rounded-full bg-good" />Stored and verified</h2>
         <StorageBadge storage={receipt.storage} />
       </div>
       <dl className="mt-4">
@@ -31,7 +32,7 @@ export function ReceiptCard({ receipt }: { receipt: FileReceipt }) {
         <Row label="Size">{formatBytes(receipt.sizeBytes)}</Row>
         <Row label="Stored">{formatDateTime(receipt.storedAt)}</Row>
         <Row label="Encrypted">{receipt.encrypted ? "Yes, AES-256-GCM" : "No"}</Row>
-        <Row label="Trace ID"><HashText value={receipt.traceId} /></Row>
+        <Row label="Trace ID"><span className="flex items-center gap-3"><HashText value={receipt.traceId} />{receipt.traceId && <a href={traceUrl(receipt.traceId)} target="_blank" rel="noreferrer" className="label text-info hover:underline">Open trace ↗</a>}</span></Row>
       </dl>
     </motion.section>
   );

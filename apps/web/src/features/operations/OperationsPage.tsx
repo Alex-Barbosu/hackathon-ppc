@@ -1,6 +1,7 @@
 import { useAccess } from "../../state/useAccess";
 import { PageHero, SectionTitle } from "../../components/PageHero";
-import { Scrim, TexturePanel } from "../../components/Texture";
+import { WIDGET } from "../../components/ui";
+import { GrafanaPanel } from "./GrafanaPanel";
 import { AlertFeed } from "./AlertFeed";
 import { HeroCharts } from "./HeroCharts";
 import { MeterIntegrity } from "./MeterIntegrity";
@@ -12,30 +13,29 @@ import { Tiles } from "./Tiles";
 export function OperationsPage() {
   const { chaos } = useAccess();
   return (
-    <div className="space-y-16 sm:space-y-24">
-      <PageHero label="Operations" title={<>Every guarantee, <em>live</em>.</>}>
-        Live from the last minute, refreshed every 5 seconds.{chaos && " Break something from Chaos in the top bar and watch the guarantees hold."}
+    <div className="space-y-8">
+      <PageHero label="Operations" title="Operations">
+        Last minute, refreshed every 5 seconds.{chaos && " Chaos controls are in the top bar."}
       </PageHero>
       <StatsRow />
-      {/* Alerts sit on the sky panel: the first thing an operator should read. */}
-      <TexturePanel texture="lines-sky" className="flex min-h-[320px] justify-center px-4 py-10 sm:px-10 sm:py-16">
-        <Scrim texture="lines-sky" className="w-full max-w-3xl p-6 sm:p-8"><AlertFeed /></Scrim>
-      </TexturePanel>
+      {/* Alerts and meter integrity first: the two things an operator must be able to read at a glance. */}
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        <div className={`${WIDGET} p-6`}><AlertFeed /></div>
+        <div className={`${WIDGET} p-6`}><MeterIntegrity /></div>
+      </div>
       <PagerPanel />
-      <section className="space-y-10">
-        <SectionTitle sub="PostgreSQL, S3 and FTPS, then latency, throughput and errors for each category.">
-          <em>Watch</em> every storage at once.
+      <section className="space-y-4">
+        <SectionTitle sub="Health per storage, then p95 latency, throughput and errors per category.">
+          Storages and categories
         </SectionTitle>
         <StorageStrip />
         <Tiles />
       </section>
-      <section className="space-y-10">
-        <SectionTitle sub="A 10x storm in outage records should leave meter latency flat.">Storms stay in their <em>lane</em>.</SectionTitle>
+      <section className="space-y-4">
+        <SectionTitle sub="A 10x storm in outage records should leave meter latency flat.">Bulkhead isolation</SectionTitle>
         <HeroCharts />
       </section>
-      <TexturePanel texture="amber" className="px-4 py-10 sm:px-10 sm:py-16">
-        <Scrim texture="amber" className="mx-auto max-w-4xl p-6 sm:p-10"><MeterIntegrity /></Scrim>
-      </TexturePanel>
+      <GrafanaPanel />
     </div>
   );
 }

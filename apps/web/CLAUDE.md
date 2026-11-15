@@ -26,6 +26,14 @@ for the outage map. API types generated from `contracts/openapi.yaml` (`openapi-
 read-only role, Prometheus HTTP API client.
 
 ## Design direction
+Changed by Alex on 15 Nov 2026: FileGrid is a console for trained operators, not a landing page. Keep the
+dark Origin tokens and fonts below, but no hero headlines, texture bands, explainer sections or phone
+mock-ups inside the app. Screens open with the compact `PageHero` (breadcrumb label, 32 px title, one line),
+sections use the small left-aligned `SectionTitle`, and density beats whitespace. Keyboard first:
+`CommandPalette` (Ctrl/Cmd+K). `StatusBar` shows storage health on every screen. The analyst is "Volta"
+(`features/insights/Volta.tsx`). Grafana is reachable from Operations (`GrafanaPanel`), the status bar and
+each receipt's trace link (`lib/grafana.ts`). The 3D scene remains only as the Login backdrop.
+
 Changed by Alex on 14 Nov 2026: the web app follows Origin (useorigin.com) closely. Dark ground
 #050505, white as the only accent, colour for status only. Headings in Newsreader Light (300)
 with one italic word; body in Inter Light; labels, nav and buttons in Roboto Mono capitals.
