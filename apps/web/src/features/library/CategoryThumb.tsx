@@ -1,7 +1,7 @@
 import { TEX_CLASS, type TextureName } from "../../components/Texture";
 import type { Category } from "../../lib/domain";
 
-const TEX: Record<Category, TextureName> = { outage: "amber", document: "sky", video: "forest", meter: "field" };
+const TEX: Record<Category, TextureName> = { outage: "lines-dusk", document: "sky", video: "forest", meter: "field" };
 const SHORT: Record<Category, string> = { outage: "OUT", document: "DOC", video: "VID", meter: "MTR" };
 
 // A small landscape tile per category, so a long list can be scanned by colour before reading.

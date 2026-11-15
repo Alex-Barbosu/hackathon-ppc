@@ -1,3 +1,4 @@
+import { Stagger, StaggerItem } from "../../components/motion/Reveal";
 import { motion, useReducedMotion } from "framer-motion";
 import { Chip } from "../../components/ui";
 import { Q } from "./prom";
@@ -41,13 +42,13 @@ export function Tiles() {
   const rate = usePromQuery(Q.throughput);
   const err = usePromQuery(Q.errorRate);
   return (
-    <section aria-label="Live metrics per category" className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <Stagger as="section" className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
       {CATS.map((c) => {
         const [v, u] = fmtMs(p95.data?.get(c.id));
         const r = rate.data?.get(c.id);
         const e = err.data?.get(c.id);
         return (
-          <article key={c.id} className="flex flex-col gap-6 rounded-card border-[0.8px] border-line bg-surface p-6">
+          <StaggerItem as="article" key={c.id} className="flex flex-col gap-6 rounded-card border-[0.8px] border-line bg-surface p-6 transition-colors duration-500 hover:border-white/16">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-lg tracking-[-0.2px]">{c.label}</h3>
               {status(r, e)}
@@ -60,9 +61,9 @@ export function Tiles() {
               <div><dt className="label text-[11px] text-faint">Throughput</dt><dd className="mt-1">{fmtRate(r)} ops/s</dd></div>
               <div><dt className="label text-[11px] text-faint">Errors</dt><dd className={`mt-1 ${e != null && e > 0.01 ? "text-bad" : ""}`}>{fmtPct(e)}</dd></div>
             </dl>
-          </article>
+          </StaggerItem>
         );
       })}
-    </section>
+    </Stagger>
   );
 }

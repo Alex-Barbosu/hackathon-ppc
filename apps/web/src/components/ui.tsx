@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 // Origin's button voice: Roboto Mono capitals, 8px radius, white on black for the one action that matters.
 const BASE =
-  "inline-flex min-h-12 items-center justify-center gap-2 rounded-lg px-[18px] py-3 font-mono text-xs font-medium uppercase tracking-label transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
+  "inline-flex min-h-12 items-center justify-center gap-2 rounded-lg px-[18px] py-3 font-mono text-xs font-medium uppercase tracking-label transition-[background-color,transform,opacity] duration-200 active:scale-[0.97] [&>svg]:transition-transform [&>svg]:duration-300 hover:[&>svg]:translate-x-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
 
 export function PrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type="button" {...props} className={`${BASE} bg-accent text-accent-ink hover:bg-[#e8e8e8] ${props.className ?? ""}`} />;
@@ -15,7 +15,7 @@ export function SecondaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) 
 export const FIELD =
   "min-h-12 w-full rounded-lg border-[0.8px] border-white/12 bg-surface px-4 text-base font-light text-ink placeholder:text-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
-export const CARD = "rounded-card border-[0.8px] border-line bg-surface";
+export const CARD = "rounded-card border-[0.8px] border-line bg-surface transition-colors duration-500 hover:border-white/14";
 export const WIDGET = "overflow-hidden rounded-widget border-[0.8px] border-line bg-panel";
 
 export function Arrow() {

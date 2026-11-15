@@ -1,3 +1,4 @@
+import { Stagger, StaggerItem } from "../../components/motion/Reveal";
 // The Lab's recommendation is only trustworthy if a reader can see how it was reached, so the
 // method is on the page in four plain steps, mirroring services/insights/src/storageLab.
 const STEPS = [
@@ -9,14 +10,14 @@ const STEPS = [
 
 export function LabExplainer() {
   return (
-    <section aria-label="How the Lab decides" className="grid gap-px overflow-hidden rounded-card border-[0.8px] border-line bg-line sm:grid-cols-2 xl:grid-cols-4">
+    <Stagger as="section" className="grid gap-px overflow-hidden rounded-card border-[0.8px] border-line bg-line sm:grid-cols-2 xl:grid-cols-4">
       {STEPS.map((s, i) => (
-        <div key={s.title} className="bg-canvas p-6">
+        <StaggerItem key={s.title} className="bg-canvas p-6">
           <p className="label text-faint">Step 0{i + 1}</p>
           <h3 className="mt-3 text-base font-normal text-white">{s.title}</h3>
           <p className="mt-2 text-sm leading-[1.55] text-muted">{s.body}</p>
-        </div>
+        </StaggerItem>
       ))}
-    </section>
+    </Stagger>
   );
 }

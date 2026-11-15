@@ -1,18 +1,19 @@
+import { Ticker } from "../../components/motion/Ticker";
 import { Chip } from "../../components/ui";
 import { integrityState } from "./integrityState";
 import { Q, WINDOW_LABEL } from "./prom";
 import { usePromQuery } from "./usePromQuery";
 
 type Series = Map<string, number | null> | undefined;
-const fmt = (v: number | null) => (v == null ? "–" : v.toLocaleString("en-GB"));
+const whole = (n: number) => Math.round(n).toLocaleString("en-GB");
 // A series that is absent is not the same as one that is zero; Map.has tells them apart.
 const present = (m: Series): number | undefined => (m?.has("") ? (m.get("") ?? undefined) : undefined);
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+function Stat({ label, value, sub }: { label: string; value: number | null; sub: string }) {
   return (
     <div className="flex flex-col gap-2 border-t-[0.8px] border-white/16 pt-4">
       <p className="label text-white/70">{label}</p>
-      <p className="font-display text-[44px] leading-none tabular-nums sm:text-[56px]">{value}</p>
+      <p className="font-display text-[44px] leading-none tabular-nums sm:text-[56px]"><Ticker value={value} format={whole} /></p>
       <p className="text-[13px] text-white/70">{sub}</p>
     </div>
   );
@@ -32,9 +33,9 @@ export function MeterIntegrity() {
         {state.kind === "no-api" ? <>No readings reported by the API <em>yet</em>.</> : equal ? <>Nothing lost, nothing <em>doubled</em>.</> : <>Some readings are still in <em>flight</em>.</>}
       </h3>
       <div className="grid gap-6 sm:grid-cols-3">
-        <Stat label="Acknowledged" value={fmt(state.acked)} sub="Acks the simulator received" />
-        <Stat label="Stored" value={state.kind === "no-api" ? "–" : fmt(state.stored)} sub="The API's own count" />
-        <Stat label="Duplicates rejected" value={state.kind === "no-api" ? "–" : fmt(state.duplicates)} sub="Retries caught by the idempotency key" />
+        <Stat label="Acknowledged" value={state.acked} sub="Acks the simulator received" />
+        <Stat label="Stored" value={state.kind === "no-api" ? null : state.stored} sub="The API's own count" />
+        <Stat label="Duplicates rejected" value={state.kind === "no-api" ? null : state.duplicates} sub="Retries caught by the idempotency key" />
       </div>
       <details className="text-[13px] text-white/70">
         <summary className="cursor-pointer select-none hover:text-white">How this is counted</summary>
