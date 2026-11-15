@@ -17,12 +17,16 @@ const CAT_NAME: Record<string, string> = { meter: "meter readings", outage: "out
 const STORE_NAME: Record<string, string> = { db: "PostgreSQL", s3: "S3", ftp: "FTPS" };
 const TTL_MS = 30 * 60_000;
 // Bumped whenever the prompt or labels change, so a cached briefing in the old wording is not served again.
-const FORMAT = "v2";
+const FORMAT = "v3";
 const MAX_METRICS = 4;
 const MAX_MINUTES = 1440;
 
 const f1 = (n: number) => (Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(1));
 const ms = (s: number) => `${f1(s * 1000)} ms`;
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+// The reader is in Romania; a raw ISO string in UTC made them do the arithmetic.
+const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Europe/Bucharest" });
+const KIND_NAME: Record<string, string> = { consumption_drop: "sudden drop in consumption", spike: "consumption spike", stuck_meter: "stuck meter", voltage_sag: "voltage sag" };
 /** Runs saved before the Lab switched to plain words still say "write p95"; a manager reads "95% saved within" faster. */
 export const plainLabel = (l: string) => l.replace(/\bwrite p95\b/g, "95% saved within").replace(/\bread p95\b/g, "95% read within").replace(/\bthroughput\b/g, "transfer speed");
 
@@ -32,7 +36,7 @@ export interface BriefingDeps { db: Db; prom: PromLike; lab: LabLike; llm: Llm |
 /** Everything the briefing may say, gathered first, so the model only writes and never fetches. */
 export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promise<FactGroup[]> {
   const minutes = Math.min(Math.max(Math.round((to.getTime() - from.getTime()) / 60_000), 1), MAX_MINUTES);
-  const period = `${from.toISOString().slice(0, 16)}Z to ${to.toISOString().slice(0, 16)}Z`;
+  const period = `${WHEN.format(from)} to ${WHEN.format(to)}, Bucharest time`;
   const safe = async <T>(p: Promise<T>, empty: T): Promise<T> => p.catch(() => empty);
 
   const storage: FactGroup = { title: TITLES[0], facts: [], notes: [] };
@@ -55,6 +59,12 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
     const p = p95.find((s) => s.labels.category === c);
     if (o) traffic.facts.push({ label: `${CAT_NAME[c]}: files saved per second, typical`, value: f1(o.avg) }, { label: `${CAT_NAME[c]}: files saved per second, busiest minute`, value: f1(o.max) });
     if (p) traffic.facts.push({ label: `${CAT_NAME[c]}: 95% saved within, typical`, value: ms(p.avg) }, { label: `${CAT_NAME[c]}: 95% saved within, busiest minute`, value: ms(p.max) });
+    // The comparison the brief asks for, spelled out, so the page answers it even when the AI is off.
+    if (o && o.avg > 0) {
+      const times = o.max / o.avg;
+      const speed = p ? ` 95% of files were saved within ${ms(p.max)} in that minute, against ${ms(p.avg)} typically.` : "";
+      traffic.notes.push(`${CAT_NAME[c]}: the busiest minute carried ${f1(o.max)} files per second, ${times >= 1.5 ? `${f1(times)} times the typical ${f1(o.avg)}` : `close to the typical ${f1(o.avg)}`}.${speed}`);
+    }
   }
   if (rate[0]) traffic.facts.push({ label: "meters sending, busiest minute (readings per second)", value: f1(rate[0].max) });
   if (!traffic.facts.length) traffic.notes.push("Prometheus returned no traffic for this window.");
@@ -68,13 +78,24 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
   ]);
   const byKind = new Map<string, number>();
   for (const a of anomalies) byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1);
-  for (const [k, n] of byKind) grid.facts.push({ label: `meter anomalies: ${k.replace("_", " ")}`, value: String(n) });
-  if (!anomalies.length) grid.notes.push("No meter anomalies were found. Parsed meter intervals may not be stored yet, so the baselines cannot be built.");
+  for (const [k, n] of byKind) grid.facts.push({ label: `meters with a ${KIND_NAME[k] ?? k.replace("_", " ")}`, value: String(n) });
+  if (anomalies.length) grid.notes.push(`${plural(new Set(anomalies.map((a) => a.meterId)).size, "meter")} reported readings far from their own baseline: ${[...byKind].map(([k, n]) => `${n} with a ${KIND_NAME[k] ?? k}`).join(", ")}.`);
+  const worst = anomalies[0];
+  if (worst) grid.notes.push(`Strongest signal: meter ${worst.meterId}${worst.county ? ` in ${worst.county}` : ""}. ${worst.explanation}`);
+  if (!anomalies.length) grid.notes.push("No meter anomalies were found. Each meter needs at least eight readings before it can be judged.");
   const top = hotspots[0];
   if (top) grid.facts.push({ label: `outage records, ${top.county === "Not recorded" ? `region ${top.region} (county not recorded)` : top.county}`, value: String(top.outages) });
   const station = top?.stations[0];
-  if (top && station) grid.facts.push({ label: `busiest station in ${top.county === "Not recorded" ? top.region : top.county}: ${station.station}`, value: `${station.outages} outage records` });
-  grid.facts.push({ label: "integrity failures in the window", value: String(Math.round(integrity[0]?.value ?? 0)) });
+  if (top && station) grid.facts.push({ label: `busiest station in ${top.county === "Not recorded" ? top.region : top.county}: ${station.station}`, value: plural(station.outages, "outage record") });
+  const named = hotspots.filter((h) => h.county !== "Not recorded");
+  const total = named.reduce((n, h) => n + h.outages, 0);
+  if (named[0] && total > 0) {
+    const lead = named.slice(0, 3).map((h) => `${h.county} (${h.outages})`).join(", ");
+    grid.notes.push(`${plural(total, "outage recording")} across ${plural(named.length, "county").replace("countys", "counties")}. Most come from ${lead}${named[0].stations[0] ? `; the busiest station is ${named[0].stations[0].station}` : ""}.`);
+  } else grid.notes.push("No outage recordings with a county have been uploaded yet.");
+  const failures = Math.round(integrity[0]?.value ?? 0);
+  grid.facts.push({ label: "integrity failures in the window", value: String(failures) });
+  grid.notes.push(failures ? `${plural(failures, "download")} failed the SHA-256 check and ${failures === 1 ? "was" : "were"} refused instead of handing out a damaged file.` : "Every download in the window matched its SHA-256; no corrupted file was served.");
   for (const a of alerts) grid.facts.push({ label: `alert fired: ${str(a.alertname)}`, value: Number(a.times) === 1 ? "1 time" : `${str(a.times)} times` });
   return [storage, traffic, grid];
 }

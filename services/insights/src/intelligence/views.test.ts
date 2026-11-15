@@ -60,3 +60,9 @@ test("view queries are capped and parameterised", async () => {
   await queryView(db, "alert_history", { days: 9999, limit: 9999 });
   assert.deepEqual(db.calls[0]?.params, ["60", 50]);
 });
+
+test("an anomaly judged against the meter's last readings says so, not 'this time of day'", () => {
+  const text = explainAnomaly("spike", { kwh: 0.15, baseline: 0.06, voltage: 230, score: 6, basis: "recent" });
+  assert.match(text, /previous readings averaged 0\.06 kWh/);
+  assert.doesNotMatch(text, /time of day/);
+});

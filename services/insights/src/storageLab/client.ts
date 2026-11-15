@@ -73,6 +73,19 @@ export class ApiClient {
     for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) hash.update(chunk);
     return { sha256: hash.digest("hex"), header: res.headers.get("x-content-sha256") };
   }
+
+  /** Benchmark files left by runs made before the Lab cleaned up after itself. Named storage-lab-*, so nothing else matches. */
+  async leftovers(): Promise<string[]> {
+    const res = await fetch(`${this.base}/api/v1/files?q=storage-lab-&size=100`, { headers: this.headers() });
+    if (!res.ok) return [];
+    const page = (await res.json()) as { items?: Array<{ id: string; originalName?: string }> };
+    return (page.items ?? []).filter((f) => f.originalName?.startsWith("storage-lab-")).map((f) => f.id);
+  }
+
+  /** Best effort: a benchmark file that stays behind only clutters the Library, it does not spoil a measurement. */
+  async remove(id: string): Promise<void> {
+    await fetch(`${this.base}/api/v1/files/${id}`, { method: "DELETE", headers: this.headers() }).then((r) => r.body?.cancel(), () => undefined);
+  }
 }
 
 async function drain(p: ReturnType<typeof randomPayload>, hash: ReturnType<typeof createHash>): Promise<Buffer[]> {
