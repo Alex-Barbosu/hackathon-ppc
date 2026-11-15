@@ -30,7 +30,7 @@ export function AnomalyList() {
       {isPending && <div className="mt-4 h-24 animate-pulse rounded-xl bg-white/6" />}
       {isError && <p role="alert" className="mt-4 text-sm text-bad">Anomalies could not be read. Try again in a moment.</p>}
       {data?.length === 0 && <p className="mt-4 text-sm text-muted">No anomalies yet. A meter is judged against its own readings once it has sent eight of them.</p>}
-      <ul className="mt-4 divide-y divide-line">
+      <ul className="mt-4 grid divide-y divide-line lg:grid-cols-2 lg:gap-x-10 lg:divide-y-0 [&>li]:border-line lg:[&>li]:border-b">
         {data?.slice(0, 8).map((a) => (
           <li key={`${a.meterId}-${a.kind}`} className="py-3">
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">

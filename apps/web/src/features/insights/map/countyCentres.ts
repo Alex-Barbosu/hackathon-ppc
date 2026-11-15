@@ -1,0 +1,51 @@
+// The visual centre of each county on the Romania map (the point deepest inside its outline), in the
+// map's own coordinates. Kept apart from the outlines so the page can rank and describe hotspots before
+// the larger outline file has loaded.
+// Source: "Map of Romania" by mapsvg.com, via @svg-maps/romania, licensed CC BY 4.0
+// (https://creativecommons.org/licenses/by/4.0/). Generated, do not edit.
+export const ROMANIA_VIEWBOX = "0 0 613 433";
+
+export const COUNTY_CENTRES: ReadonlyArray<{ name: string; x: number; y: number }> = [
+  { name: "Alba", x: 212.2, y: 200.2 },
+  { name: "Arad", x: 101.7, y: 187.3 },
+  { name: "Argeș", x: 296.3, y: 276.0 },
+  { name: "Bacău", x: 424.8, y: 177.2 },
+  { name: "Bihor", x: 124.5, y: 127.7 },
+  { name: "Bistrița-Năsăud", x: 273.9, y: 96.5 },
+  { name: "Botoșani", x: 418.1, y: 33.0 },
+  { name: "Brașov", x: 318.0, y: 230.2 },
+  { name: "Brăila", x: 482.5, y: 301.4 },
+  { name: "București", x: 378.7, y: 360.2 },
+  { name: "Buzău", x: 422.0, y: 281.3 },
+  { name: "Caraș-Severin", x: 116.9, y: 294.1 },
+  { name: "Cluj", x: 221.8, y: 143.1 },
+  { name: "Constanța", x: 517.9, y: 387.2 },
+  { name: "Covasna", x: 375.1, y: 223.5 },
+  { name: "Călărași", x: 416.7, y: 370.9 },
+  { name: "Dolj", x: 218.2, y: 384.1 },
+  { name: "Dâmbovița", x: 340.3, y: 329.7 },
+  { name: "Galați", x: 485.9, y: 234.6 },
+  { name: "Giurgiu", x: 367.9, y: 389.4 },
+  { name: "Gorj", x: 198.1, y: 308.7 },
+  { name: "Harghita", x: 343.0, y: 168.0 },
+  { name: "Hunedoara", x: 174.8, y: 240.1 },
+  { name: "Ialomița", x: 486.9, y: 345.8 },
+  { name: "Iași", x: 454.8, y: 95.6 },
+  { name: "Ilfov", x: 383.2, y: 340.7 },
+  { name: "Maramureș", x: 229.5, y: 62.5 },
+  { name: "Mehedinți", x: 171.1, y: 363.4 },
+  { name: "Mureș", x: 277.8, y: 166.7 },
+  { name: "Neamț", x: 389.0, y: 123.4 },
+  { name: "Olt", x: 270.1, y: 364.3 },
+  { name: "Prahova", x: 380.0, y: 307.8 },
+  { name: "Satu Mare", x: 159.5, y: 64.7 },
+  { name: "Sibiu", x: 259.6, y: 231.6 },
+  { name: "Suceava", x: 344.7, y: 62.6 },
+  { name: "Sălaj", x: 184.1, y: 107.4 },
+  { name: "Teleorman", x: 320.7, y: 399.7 },
+  { name: "Timiș", x: 61.9, y: 244.3 },
+  { name: "Tulcea", x: 534.4, y: 307.4 },
+  { name: "Vaslui", x: 488.5, y: 164.3 },
+  { name: "Vrancea", x: 432.0, y: 234.0 },
+  { name: "Vâlcea", x: 253.1, y: 298.5 },
+];
