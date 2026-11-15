@@ -548,6 +548,45 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Incident" }
 
+  /insights/pages:
+    get:
+      operationId: listPages
+      tags: [insights]
+      summary: Pages sent to an on-call person, newest first
+      description: |
+        A page is a critical alert that woke someone up. Two routes: `platform` (a storage down for over a
+        minute, integrity failure, meter readings at risk; admin on-call) and `grid` (a burst of outage
+        records in one county; that region's dispatch on-call). Filtered by role: admin sees both,
+        dispatch sees `grid` only, every other role gets 403.
+      responses:
+        "200":
+          description: Pages
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OnCallPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /insights/pages/{pageId}/ack:
+    post:
+      operationId: ackPage
+      tags: [insights]
+      summary: Acknowledge a page (stops it counting as unanswered)
+      description: Admin may acknowledge any page, dispatch only `grid` pages. Acknowledging twice keeps the first.
+      parameters:
+        - { name: pageId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The page, acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnCallPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /insights/anomalies:
     get:
       operationId: listAnomalies
@@ -953,6 +992,25 @@ components:
               startsAt: { type: string, format: date-time }
               endsAt: { type: string, format: date-time }
               fingerprint: { type: string }
+
+    OnCallPage:
+      type: object
+      required: [id, route, onCall, title, message, createdAt, delivery]
+      properties:
+        id: { type: string }
+        route: { type: string, enum: [platform, grid] }
+        onCall: { type: string, description: Who was paged, example: "Dispatch on-call, Dobrogea" }
+        title: { type: string, example: "S3 storage is down" }
+        message: { type: string, description: "Up to three plain lines, metrics and counts only (never file names, contents or people)." }
+        link: { type: string, description: "Screen to open, relative to the gateway", example: /operations }
+        alert: { type: string, description: The alert behind a platform page, example: StorageDown }
+        region: { $ref: "#/components/schemas/Region" }
+        county: { $ref: "#/components/schemas/County" }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, description: When the alert resolved or the burst ended }
+        delivery: { type: string, enum: [sent, pending, failed, off], description: "Push to the phone; off when no ntfy topic is configured" }
+        ackedAt: { type: string, format: date-time }
+        ackedBy: { type: string, description: 'Username, or "phone" when acknowledged from the notification' }
 
     Incident:
       type: object

@@ -39,3 +39,19 @@ Example webhook body:
   ]
 }
 ```
+
+## Paging (insights)
+
+Every alert still goes to the narrator. Insights pages an on-call person only for alerts that put a
+"never lose data" guarantee at risk, and only once they have fired for `PAGER_HOLD_SEC` (default 60 s),
+so a flap never wakes anyone:
+
+| Route | Trigger | Who | Topic |
+| --- | --- | --- | --- |
+| `platform` | `StorageDown`, `IntegrityFailure`, `MeterReadingLossRisk`, `DocumentProtectionFailure`, or any alert labelled `page: "true"` | admin on-call | `<NTFY_TOPIC>-admin` |
+| `grid` | ≥ `PAGER_GRID_THRESHOLD` (5) outage records in one county within 15 min (insights reads `public.files`, no Prometheus rule) | that region's dispatch on-call | `<NTFY_TOPIC>-dispatch-<region>` |
+
+Delivery is ntfy (`NTFY_URL`, default `https://ntfy.sh`). The push carries the alert summary, the
+narrator's two sentences, a link, and an Acknowledge button that posts a one-time token to
+`<NTFY_TOPIC>-ack`; insights listens there, so the phone never needs to reach the gateway.
+Without `NTFY_TOPIC` the pager still records pages in the UI (`GET /insights/pages`).

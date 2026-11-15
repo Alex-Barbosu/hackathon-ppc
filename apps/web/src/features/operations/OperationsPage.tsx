@@ -4,6 +4,7 @@ import { Scrim, TexturePanel } from "../../components/Texture";
 import { AlertFeed } from "./AlertFeed";
 import { HeroCharts } from "./HeroCharts";
 import { MeterIntegrity } from "./MeterIntegrity";
+import { PagerPanel } from "./PagerPanel";
 import { StatsRow } from "./StatsRow";
 import { StorageStrip } from "./StorageStrip";
 import { Tiles } from "./Tiles";
@@ -20,6 +21,7 @@ export function OperationsPage() {
       <TexturePanel texture="lines-sky" className="flex min-h-[320px] justify-center px-4 py-10 sm:px-10 sm:py-16">
         <Scrim texture="lines-sky" className="w-full max-w-3xl p-6 sm:p-8"><AlertFeed /></Scrim>
       </TexturePanel>
+      <PagerPanel />
       <section className="space-y-10">
         <SectionTitle sub="PostgreSQL, S3 and FTPS, then latency, throughput and errors for each category.">
           <em>Watch</em> every storage at once.
