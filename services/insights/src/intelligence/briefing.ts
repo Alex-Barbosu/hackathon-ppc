@@ -17,7 +17,7 @@ const CAT_NAME: Record<string, string> = { meter: "meter readings", outage: "out
 const STORE_NAME: Record<string, string> = { db: "PostgreSQL", s3: "S3", ftp: "FTPS" };
 const TTL_MS = 30 * 60_000;
 // Bumped whenever the prompt or labels change, so a cached briefing in the old wording is not served again.
-const FORMAT = "v3";
+const FORMAT = "v4";
 const MAX_METRICS = 4;
 const MAX_MINUTES = 1440;
 
@@ -63,7 +63,11 @@ export async function gatherFacts(d: BriefingDeps, from: Date, to: Date): Promis
     if (o && o.avg > 0) {
       const times = o.max / o.avg;
       const speed = p ? ` 95% of files were saved within ${ms(p.max)} in that minute, against ${ms(p.avg)} typically.` : "";
-      traffic.notes.push(`${CAT_NAME[c]}: the busiest minute carried ${f1(o.max)} files per second, ${times >= 1.5 ? `${f1(times)} times the typical ${f1(o.avg)}` : `close to the typical ${f1(o.avg)}`}.${speed}`);
+      // Rare categories (outage, document, video) move a few files a minute; per second they all read "0.0".
+      const perMin = o.max < 1;
+      const rate = (v: number) => (perMin ? f1(v * 60) : f1(v));
+      const unit = perMin ? "files a minute" : "files per second";
+      traffic.notes.push(`${CAT_NAME[c]}: the busiest minute carried ${rate(o.max)} ${unit}, ${times >= 1.5 ? `${f1(times)} times the typical ${rate(o.avg)}` : `close to the typical ${rate(o.avg)}`}.${speed}`);
     }
   }
   if (rate[0]) traffic.facts.push({ label: "meters sending, busiest minute (readings per second)", value: f1(rate[0].max) });

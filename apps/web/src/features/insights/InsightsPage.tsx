@@ -2,7 +2,7 @@ import { PageHero, SectionTitle } from "../../components/PageHero";
 import { AnomalyList } from "./AnomalyList";
 import { AskCard } from "./AskCard";
 import { BriefingCard } from "./BriefingCard";
-import { HotspotList } from "./HotspotList";
+import { OutageMap } from "./OutageMap";
 
 export function InsightsPage() {
   return (
@@ -11,13 +11,14 @@ export function InsightsPage() {
         For a decision maker: which storage fits each category, how a peak compares with a normal day, and what the grid data shows.
       </PageHero>
       <BriefingCard />
+      <section className="space-y-10">
+        <SectionTitle sub="Every outage recording placed on its county. The bigger the dot, the more recordings. Pick a county to see its stations.">Where the grid <em>breaks</em>.</SectionTitle>
+        <OutageMap />
+      </section>
       <AskCard />
       <section className="space-y-10">
-        <SectionTitle sub="Meters judged against their own history, outages counted by county.">The grid, <em>up close</em>.</SectionTitle>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <AnomalyList />
-          <HotspotList />
-        </div>
+        <SectionTitle sub="Each meter judged against its own history: drops, spikes, stuck readings and voltage sags.">Meters, <em>up close</em>.</SectionTitle>
+        <AnomalyList />
       </section>
     </div>
   );
